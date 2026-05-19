@@ -75,10 +75,10 @@ views:
                 icon: mdi:power-plug
                 color: green
               - type: tile
-                entity: binary_sensor.wattbox_ups_alarm
-                name: UPS alarm
-                icon: mdi:alarm-light
-                color: red
+                entity: binary_sensor.wattbox_audible_alarm_armed
+                name: Alarm armed
+                icon: mdi:bell-ring
+                color: amber
 
           # Whole-device power
           - type: horizontal-stack

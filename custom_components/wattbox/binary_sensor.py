@@ -6,6 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -28,7 +29,7 @@ async def async_setup_entry(
             [
                 WattboxUPSConnectedBinarySensor(coordinator),
                 WattboxUPSPowerLostBinarySensor(coordinator),
-                WattboxUPSAlarmBinarySensor(coordinator),
+                WattboxUPSAudibleAlarmBinarySensor(coordinator),
             ]
         )
     async_add_entities(entities)
@@ -86,9 +87,22 @@ class WattboxUPSPowerLostBinarySensor(WattboxEntity, BinarySensorEntity):
         return not ups.power_lost
 
 
-class WattboxUPSAlarmBinarySensor(WattboxEntity, BinarySensorEntity):
-    _attr_device_class = BinarySensorDeviceClass.SAFETY
-    _attr_name = "UPS alarm"
+class WattboxUPSAudibleAlarmBinarySensor(WattboxEntity, BinarySensorEntity):
+    """Whether the UPS's audible alarm is armed (enabled and not muted).
+
+    Reports a **configuration** state — "would the UPS beep on an event?"
+    — not a live alarm condition. The WattBox firmware doesn't expose a
+    "currently alarming" field; that's inferred from ``mains_power`` and
+    battery state.
+
+    No ``device_class`` set deliberately. ``SAFETY`` would render this as
+    "Safe / Unsafe" which is misleading: the alarm being armed is not
+    itself a danger.
+    """
+
+    _attr_name = "Audible alarm armed"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:bell-ring"
 
     def __init__(self, coordinator: WattboxCoordinator) -> None:
         super().__init__(coordinator)
@@ -99,6 +113,4 @@ class WattboxUPSAlarmBinarySensor(WattboxEntity, BinarySensorEntity):
         ups = self.coordinator.data.ups
         if ups is None:
             return None
-        # ON only when the alarm is enabled AND not muted — i.e. the UPS
-        # is actively trying to alert.
         return ups.alarm_enabled and not ups.alarm_muted
