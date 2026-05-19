@@ -1,0 +1,9 @@
+"""Async client for SnapAV WattBox PDUs over SSH/Telnet."""
+
+from __future__ import annotations
+
+__version__ = "0.1.0.dev0"
+
+__all__ = [
+    "__version__",
+]
