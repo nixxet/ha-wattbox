@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your WattBox",
+        "description": "Enter the WattBox's local IP, the integration username, and password. The default username is `wattbox`.",
+        "data": {
+          "host": "Host (IP or DNS name)",
+          "username": "Username",
+          "password": "Password",
+          "port": "Telnet port"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate your WattBox",
+        "description": "WattBox at {host} rejected the saved credentials. Enter the current ones.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect — check the host/port and that the WattBox is on the network.",
+      "invalid_auth": "Username or password rejected.",
+      "api_locked": "The WattBox API is in a temporary lockout after repeated failed logins. Wait ~15 minutes or reboot the device.",
+      "unknown": "Unexpected error setting up the WattBox."
+    },
+    "abort": {
+      "already_configured": "This WattBox is already configured (matched by service tag).",
+      "reauth_successful": "Reauthentication successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WattBox options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  }
+}

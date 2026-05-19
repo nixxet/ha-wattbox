@@ -47,9 +47,26 @@ asyncio.run(main())
 | WB-250-IPW-2 | 2.9.0.2 | open | open | 2 | not supported (`#Error`) | n/a |
 | WB-800-IPVM-12 | 2.10.0.0 | open | open | 12 | yes | yes (battery, runtime, alarm) |
 
+## Home Assistant integration
+
+`custom_components/wattbox/` is a HACS-installable integration that wraps the library:
+
+- **UI config flow** — host + username + password + (optional) port. Identifies the device, captures its ServiceTag as the entry's `unique_id` so re-adding the same physical WattBox cleanly de-dupes.
+- **Reauth flow** — triggered when the device rejects stored credentials.
+- **Options flow** — adjust the polling interval (10–600s, default 30s).
+- **Entities** — created conditionally on the device's verified capabilities:
+  - `switch.<outlet_name>` per outlet — on/off + reset (via button)
+  - `button.<outlet_name>_reset` per outlet, plus a device-level `Reset all outlets`
+  - `sensor.*_power` / `_current` / `_voltage` — whole-device (WB-800) and per-outlet (WB-800)
+  - `sensor.ups_battery` / `_load` / `_runtime` — UPS metrics (WB-800 + UPS)
+  - `binary_sensor.api_locked` — alerts on auth lockout instead of silent retries
+  - `binary_sensor.ups_connected` / `mains_power` / `ups_alarm`
+
+Install via HACS as a custom repository (or copy `custom_components/wattbox/` into your config), then add it from **Settings → Devices & services → Add integration → WattBox (local)**.
+
 ## Status
 
-Pre-alpha. Building Phase 1 (library) first.
+Phase 1 (library) and Phase 2 (HA integration) shipped. SSH transport deferred to Phase 3.
 
 ## Development
 
