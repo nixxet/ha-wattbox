@@ -92,6 +92,7 @@ addopts = [
   "--strict-config",
   "--cov=wattbox_local",
   "--cov-report=term-missing",
+  "--cov-report=xml",
 ]
 markers = [
   "live: tests that hit real WattBox hardware (requires WATTBOX_LIVE=1)",

@@ -20,6 +20,8 @@ dist/
 .coverage.*
 coverage.xml
 htmlcov/
+.tox/
+.nox/
 
 # Secrets / live test fixtures
 .env
