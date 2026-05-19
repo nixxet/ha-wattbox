@@ -298,24 +298,28 @@ class WattboxClient:
         return parse_int(expect_value(command, await self._send(command)), command=command)
 
     async def _send_set(self, line: str) -> None:
-        """Send a `!Cmd` and ignore the ack."""
-        response = await self._send(line)
-        # Most !Cmds reply "OK"; a few echo a query. Either way we don't
-        # need it. Only #Error is interesting at this layer (would mean
-        # the caller asked for something the device doesn't support).
+        """Send a `!Cmd` and ignore the ack.
+
+        The ack may be ``OK`` *or* a ``~Cmd=value`` async push containing
+        the new state; we pass ``allow_push=True`` so the transport
+        doesn't discard the push as stale.
+        """
+        response = await self._send(line, allow_push=True)
+        # Most !Cmds reply "OK"; a few reply with the ~push. Only #Error
+        # means the caller asked for something the device cannot do.
         if response.strip().startswith("#Error"):
             raise WattboxCommandUnsupported(line)
 
-    async def _send(self, line: str) -> str:
+    async def _send(self, line: str, *, allow_push: bool = False) -> str:
         """Send one line via the transport. Transparent one-shot reconnect."""
         if not self._transport.is_connected:
             await self._reconnect()
         try:
-            return await self._transport.send_command(line)
+            return await self._transport.send_command(line, allow_push=allow_push)
         except WattboxConnectionError:
             _LOGGER.warning("connection to %s dropped mid-command; reconnecting once", self.host)
             await self._reconnect()
-            return await self._transport.send_command(line)
+            return await self._transport.send_command(line, allow_push=allow_push)
 
     async def _reconnect(self) -> None:
         async with self._reconnect_lock:

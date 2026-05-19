@@ -40,6 +40,7 @@ from .protocol import (
     LOGIN_OK,
     LOGIN_PROMPT_PASS,
     LOGIN_PROMPT_USER,
+    is_async_push,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,13 +75,28 @@ class Transport(ABC):
         """Close the connection. Safe to call multiple times."""
 
     @abstractmethod
-    async def send_command(self, command: str, *, timeout: float = DEFAULT_TIMEOUT_S) -> str:
+    async def send_command(
+        self,
+        command: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_S,
+        allow_push: bool = False,
+    ) -> str:
         """Send a single command and return the first non-empty response line.
 
         For ``?Cmd`` queries the line is ``?Cmd=value``. For ``!Cmd`` sets
-        it is typically ``OK`` (or sometimes another ``?Cmd=value`` echo).
+        it is typically ``OK`` — but for state-changing commands the
+        device sometimes acks with the ``~Cmd=value`` async push instead.
         ``#Error`` is returned verbatim — the higher level decides whether
         to treat it as a capability gap.
+
+        ``allow_push=False`` (default): stale ``~Cmd=value`` lines left
+        over from prior state changes are skipped so they don't pollute
+        the response window of a synchronous query.
+
+        ``allow_push=True``: the next ``~Cmd=value`` push counts as a
+        valid response. Set this when issuing a ``!Cmd`` whose only ack
+        may be the push notification itself.
         """
 
     @property
@@ -190,7 +206,13 @@ class TelnetTransport(Transport):
         self._reader = None
         self._writer = None
 
-    async def send_command(self, command: str, *, timeout: float = DEFAULT_TIMEOUT_S) -> str:
+    async def send_command(
+        self,
+        command: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_S,
+        allow_push: bool = False,
+    ) -> str:
         if not self.is_connected:
             raise WattboxConnectionError(f"not connected to {self.host}")
         assert self._reader is not None
@@ -203,11 +225,9 @@ class TelnetTransport(Transport):
             except (ConnectionError, OSError) as e:
                 raise WattboxConnectionError(f"write failed to {self.host}: {e}") from e
 
-            # Read until we see something other than a blank line. WattBox
-            # responses are one line: "?Cmd=value", "OK", or "#Error".
             try:
                 line = await asyncio.wait_for(
-                    self._read_one_response_line(),
+                    self._read_one_response_line(allow_push=allow_push),
                     timeout=timeout,
                 )
             except TimeoutError as e:
@@ -216,16 +236,26 @@ class TelnetTransport(Transport):
                 ) from e
             return line
 
-    async def _read_one_response_line(self) -> str:
-        """Read lines until a non-blank one appears; return it stripped."""
+    async def _read_one_response_line(self, *, allow_push: bool = False) -> str:
+        """Read lines until a non-blank line appears.
+
+        With ``allow_push=False`` (the default), ``~Cmd=value`` lines are
+        treated as stale async notifications and skipped. With
+        ``allow_push=True`` they count as a valid response — used by set
+        commands whose only ack is the push itself.
+        """
         assert self._reader is not None
         while True:
             raw: str = await self._reader.readline()
             if raw == "":  # EOF
                 raise WattboxConnectionError(f"connection to {self.host} closed by peer")
             stripped: str = raw.strip()
-            if stripped:
-                return stripped
+            if not stripped:
+                continue
+            if not allow_push and is_async_push(stripped):
+                _LOGGER.debug("discarding stale async push from %s: %s", self.host, stripped)
+                continue
+            return stripped
 
     async def _read_until_any(self, needles: tuple[str, ...], *, timeout: float) -> str:
         """Read raw stream until any of `needles` appears or timeout.

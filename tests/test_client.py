@@ -70,7 +70,9 @@ class _ScriptedTransport(Transport):
         self.closes += 1
         self._connected = False
 
-    async def send_command(self, command: str, *, timeout: float = 5.0) -> str:
+    async def send_command(
+        self, command: str, *, timeout: float = 5.0, allow_push: bool = False
+    ) -> str:
         if not self._connected:
             raise WattboxConnectionError(f"not connected: {self.host}")
         self.sent.append(command)
@@ -334,12 +336,14 @@ class _DroppingTransport(_ScriptedTransport):
     def arm_drop(self) -> None:
         self._drop_armed = True
 
-    async def send_command(self, command: str, *, timeout: float = 5.0) -> str:
+    async def send_command(
+        self, command: str, *, timeout: float = 5.0, allow_push: bool = False
+    ) -> str:
         if self._drop_armed:
             self._drop_armed = False
             self._connected = False
             raise WattboxConnectionError("simulated drop")
-        return await super().send_command(command, timeout=timeout)
+        return await super().send_command(command, timeout=timeout, allow_push=allow_push)
 
 
 async def test_reconnect_once_on_dropped_connection() -> None:

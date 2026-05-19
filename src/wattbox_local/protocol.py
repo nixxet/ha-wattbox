@@ -19,6 +19,7 @@ dispatch. This keeps the parsers easy to unit-test from literal strings.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 from .exceptions import WattboxCommandUnsupported, WattboxProtocolError
@@ -33,7 +34,11 @@ LOGIN_PROMPT_USER: Final[str] = "Username:"
 LOGIN_PROMPT_PASS: Final[str] = "Password:"
 LOGIN_OK: Final[str] = "Successfully Logged In!"
 LOGIN_BAD: Final[str] = "Invalid Login"
-LOGIN_LOCKED: Final[str] = "API locked"
+# The device actually emits "API is locked for X minutes and Y seconds."
+# We match the substring "is locked for" so the constant is robust to
+# future minor wording tweaks. The countdown is parsed out separately by
+# `parse_lockout_remaining_s`.
+LOGIN_LOCKED: Final[str] = "is locked for"
 
 # --- commands -----------------------------------------------------------
 
@@ -108,19 +113,60 @@ def split_response(line: str) -> tuple[str, str] | None:
 
 
 def expect_value(command: str, raw: str) -> str:
-    """Strip the ``?Cmd=`` prefix from ``raw`` and return the value.
+    """Strip the ``?Cmd=`` (or ``~Cmd=``) prefix from ``raw`` and return value.
+
+    WattBox firmware uses ``?`` to prefix synchronous responses and ``~``
+    to prefix asynchronous push notifications (emitted after a state
+    change). Both carry the same payload shape for the same command name,
+    so both are accepted here.
 
     Raises :class:`WattboxCommandUnsupported` if the device responded
     ``#Error``. Raises :class:`WattboxProtocolError` for anything else
-    that doesn't look like ``command=value``.
+    that doesn't look like ``Cmd=value``.
     """
     stripped = raw.strip()
     if stripped == ERROR_SENTINEL:
         raise WattboxCommandUnsupported(command)
-    prefix = f"{command}="
-    if not stripped.startswith(prefix):
-        raise WattboxProtocolError(f"expected response prefix {prefix!r}, got {stripped!r}")
-    return stripped[len(prefix) :]
+    # The command constant is e.g. "?Model"; the bare name is "Model".
+    # Accept either "?Model=" or "~Model=" as a valid prefix.
+    bare = command.lstrip("?~")
+    for prefix in (f"?{bare}=", f"~{bare}="):
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :]
+    raise WattboxProtocolError(
+        f"expected response prefix '?{bare}=' or '~{bare}=', got {stripped!r}"
+    )
+
+
+def is_async_push(line: str) -> bool:
+    """True if ``line`` is a ``~Cmd=value`` async notification.
+
+    Used by transports to identify stale notifications that should be
+    discarded between commands.
+    """
+    stripped = line.strip()
+    return stripped.startswith("~") and "=" in stripped
+
+
+_LOCKOUT_RE = re.compile(
+    r"locked for (?:(\d+)\s*minutes?)?(?:\s*and\s*)?(?:(\d+)\s*seconds?)?",
+    re.IGNORECASE,
+)
+
+
+def parse_lockout_remaining_s(banner: str) -> int | None:
+    """Pull the countdown out of an ``API is locked for ...`` banner.
+
+    Returns total seconds remaining, or ``None`` if the banner doesn't
+    contain a parseable duration.
+    """
+    match = _LOCKOUT_RE.search(banner)
+    if not match:
+        return None
+    minutes = int(match.group(1) or 0)
+    seconds = int(match.group(2) or 0)
+    total = minutes * 60 + seconds
+    return total if total > 0 else None
 
 
 # --- parsers ------------------------------------------------------------

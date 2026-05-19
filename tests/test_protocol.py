@@ -29,8 +29,10 @@ from wattbox_local.protocol import (
     encode_auto_reboot,
     encode_outlet_set,
     expect_value,
+    is_async_push,
     parse_auto_reboot,
     parse_int,
+    parse_lockout_remaining_s,
     parse_outlet_names,
     parse_outlet_status,
     parse_power_status,
@@ -326,3 +328,65 @@ class TestEncodeAutoReboot:
 
     def test_off(self) -> None:
         assert encode_auto_reboot(False) == "!AutoReboot=0"
+
+
+# --- async push handling ------------------------------------------------
+
+
+class TestAsyncPushPrefix:
+    """The device emits ~Cmd=value as async state-change notifications.
+
+    `expect_value` accepts either ?Cmd= or ~Cmd= as a valid prefix because
+    the payload shape is identical and either may be the response we land
+    on for a given command.
+    """
+
+    def test_tilde_prefix_accepted_for_query(self) -> None:
+        # Verified live: !OutletSet=N,ON can be acked with a ~OutletStatus= push.
+        assert expect_value("?OutletStatus", "~OutletStatus=1,0") == "1,0"
+
+    def test_tilde_prefix_for_power_status(self) -> None:
+        assert expect_value("?PowerStatus", "~PowerStatus=0.27,81.88,123.69,0") == (
+            "0.27,81.88,123.69,0"
+        )
+
+    def test_wrong_command_name_still_rejected(self) -> None:
+        with pytest.raises(WattboxProtocolError):
+            expect_value("?OutletStatus", "~PowerStatus=0,0,0,0")
+
+    def test_is_async_push_recognises_tilde(self) -> None:
+        assert is_async_push("~OutletStatus=1,0")
+        assert is_async_push("  ~OutletStatus=1,0  \r\n")
+
+    def test_is_async_push_rejects_query_and_set(self) -> None:
+        assert not is_async_push("?OutletStatus=1,0")
+        assert not is_async_push("!OutletSet=1,ON")
+        assert not is_async_push("OK")
+        assert not is_async_push("#Error")
+        assert not is_async_push("")
+
+
+# --- lockout banner parsing --------------------------------------------
+
+
+class TestParseLockoutRemainingS:
+    """The device emits 'API is locked for X minutes and Y seconds.'"""
+
+    def test_minutes_and_seconds(self) -> None:
+        assert parse_lockout_remaining_s("API is locked for 4 minutes and 39 seconds.") == 279
+
+    def test_only_minutes(self) -> None:
+        assert parse_lockout_remaining_s("API is locked for 5 minutes.") == 300
+
+    def test_only_seconds(self) -> None:
+        assert parse_lockout_remaining_s("API is locked for 45 seconds.") == 45
+
+    def test_singular_units(self) -> None:
+        assert parse_lockout_remaining_s("API is locked for 1 minute and 1 second.") == 61
+
+    def test_no_match_returns_none(self) -> None:
+        assert parse_lockout_remaining_s("Please Login to Continue") is None
+
+    def test_zero_duration_returns_none(self) -> None:
+        # "0 minutes and 0 seconds" is effectively "not locked" — don't claim a lockout.
+        assert parse_lockout_remaining_s("API is locked for 0 minutes and 0 seconds.") is None

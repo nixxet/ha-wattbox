@@ -146,7 +146,7 @@ async def test_login_bad_credentials_raises_auth(patch_telnet: Any) -> None:
 
 
 async def test_login_lockout_at_banner_raises_lockout(patch_telnet: Any) -> None:
-    patch_telnet(["API locked due to too many invalid login attempts.\r\n"])
+    patch_telnet(["API is locked for 4 minutes and 39 seconds.\r\nUsername: "])
     t = TelnetTransport("10.0.0.1", "wattbox", "secret")
     with pytest.raises(WattboxLockoutError):
         await t.connect()
@@ -157,7 +157,7 @@ async def test_login_lockout_after_password_raises_lockout(patch_telnet: Any) ->
         [
             "Please Login to Continue\r\nUsername: ",
             "Password: ",
-            "API locked\r\n",
+            "API is locked for 5 minutes and 0 seconds.\r\n",
         ]
     )
     t = TelnetTransport("10.0.0.1", "wattbox", "secret")
@@ -303,6 +303,40 @@ async def test_open_telnet_context_manager_closes_on_exit(patch_telnet: Any) -> 
         assert t.is_connected
         assert await t.send_command("?Firmware") == "?Firmware=2.10.0.0"
     assert s["writer"].closed
+
+
+async def test_send_command_skips_stale_async_push(patch_telnet: Any) -> None:
+    """A ~OutletStatus push left over from a prior !OutletSet must be skipped."""
+    patch_telnet(
+        [
+            "Please Login to Continue\r\nUsername: ",
+            "Password: ",
+            "Successfully Logged In!\r\n",
+            "~OutletStatus=1,0\r\n?OutletStatus=1,1\r\n",
+        ]
+    )
+    t = TelnetTransport("10.0.0.1", "u", "p")
+    await t.connect()
+    # Default allow_push=False: the ~ push is discarded, the real ? response returned.
+    assert await t.send_command("?OutletStatus") == "?OutletStatus=1,1"
+    await t.close()
+
+
+async def test_send_command_with_allow_push_returns_push(patch_telnet: Any) -> None:
+    """A ~Cmd=value push counts as a valid response for !Cmd acks."""
+    patch_telnet(
+        [
+            "Please Login to Continue\r\nUsername: ",
+            "Password: ",
+            "Successfully Logged In!\r\n",
+            "~OutletStatus=1,0\r\n",
+        ]
+    )
+    t = TelnetTransport("10.0.0.1", "u", "p")
+    await t.connect()
+    result = await t.send_command("!OutletSet=2,OFF", allow_push=True)
+    assert result == "~OutletStatus=1,0"
+    await t.close()
 
 
 async def test_open_telnet_closes_even_on_exception(patch_telnet: Any) -> None:
