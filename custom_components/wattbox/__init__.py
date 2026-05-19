@@ -10,9 +10,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
-from wattbox_local import WattboxAuthError, WattboxClient, WattboxLockoutError
-from wattbox_local.transport import SSHTransport, TelnetTransport
-
 from .const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -26,6 +23,8 @@ from .const import (
     default_port_for,
 )
 from .coordinator import WattboxCoordinator
+from .wattbox_local import WattboxAuthError, WattboxClient, WattboxLockoutError
+from .wattbox_local.transport import SSHTransport, TelnetTransport
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -67,6 +67,7 @@ ignore = ["E501"]  # line length handled by formatter
 "tests/**" = ["B011", "ASYNC109"]
 # Public transport API deliberately exposes a `timeout=` parameter (mirrors httpx/aiohttp/asyncssh).
 "src/wattbox_local/transport.py" = ["ASYNC109"]
+"custom_components/wattbox/wattbox_local/transport.py" = ["ASYNC109"]
 
 [tool.mypy]
 python_version = "3.13"

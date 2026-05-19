@@ -11,15 +11,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from wattbox_local import (
+from .const import DOMAIN
+from .wattbox_local import (
     Snapshot,
     WattboxAuthError,
     WattboxClient,
     WattboxConnectionError,
     WattboxLockoutError,
 )
-
-from .const import DOMAIN
 
 if TYPE_CHECKING:
     pass
