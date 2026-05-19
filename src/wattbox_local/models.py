@@ -51,8 +51,9 @@ class OutletState:
 class PowerStatus:
     """Per-device aggregate power metering (whole-PDU, not per-outlet).
 
-    Returned by `?PowerStatus`. Not all models expose this; `WB-250-IPW-2`
-    for example returns `#Error`. The library raises
+    Returned by `?PowerStatus`. Wire format per the vendor PDF v2.4:
+    ``?PowerStatus=A,W,V,safe_flag``. Not all models expose this; the
+    `WB-250-IPW-2` for example returns `#Error`. The library raises
     :class:`~wattbox_local.exceptions.WattboxCommandUnsupported` in that
     case, and the integration omits the corresponding sensors.
     """
@@ -61,6 +62,22 @@ class PowerStatus:
     power_watts: float
     voltage_volts: float
     safe_voltage: bool  # the trailing 0/1 flag from the wire
+
+
+@dataclass(frozen=True, slots=True)
+class OutletPowerStatus:
+    """Per-outlet power metering (WB-800 only).
+
+    Returned by ``?OutletPowerStatus=N``. Wire format per the vendor PDF
+    v2.4: ``?OutletPowerStatus=N,W,A,V`` — **note the watts/amps order is
+    flipped vs whole-device `?PowerStatus`**; that's the device's choice,
+    not ours.
+    """
+
+    outlet: int  # 1-based
+    power_watts: float
+    current_amps: float
+    voltage_volts: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +108,7 @@ class Capabilities:
     """
 
     power_status: bool = False
+    outlet_power_status: bool = False
     ups: bool = False
     auto_reboot: bool = False
     mute: bool = False
@@ -105,6 +123,7 @@ class Snapshot:
     info: DeviceInfo
     capabilities: Capabilities
     outlets: list[OutletState] = field(default_factory=list)
+    outlet_power: list[OutletPowerStatus] = field(default_factory=list)
     power: PowerStatus | None = None
     ups: UPSStatus | None = None
     ups_connected: bool | None = None

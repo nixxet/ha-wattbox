@@ -23,7 +23,7 @@ import re
 from typing import Final
 
 from .exceptions import WattboxCommandUnsupported, WattboxProtocolError
-from .models import BatteryHealth, PowerStatus, UPSStatus
+from .models import BatteryHealth, OutletPowerStatus, PowerStatus, UPSStatus
 
 # --- response sentinels --------------------------------------------------
 
@@ -53,6 +53,7 @@ CMD_OUTLET_NAME: Final[str] = "?OutletName"
 
 # Optional / capability-gated query commands
 CMD_POWER_STATUS: Final[str] = "?PowerStatus"
+CMD_OUTLET_POWER_STATUS: Final[str] = "?OutletPowerStatus"
 CMD_UPS_STATUS: Final[str] = "?UPSStatus"
 CMD_UPS_CONNECTION: Final[str] = "?UPSConnection"
 CMD_AUTO_REBOOT: Final[str] = "?AutoReboot"
@@ -64,25 +65,45 @@ CMD_SCHEDULED_REBOOT: Final[str] = "?ScheduledReboot"
 SET_OUTLET: Final[str] = "!OutletSet"
 SET_AUTO_REBOOT: Final[str] = "!AutoReboot"
 
-# Outlet action verbs for !OutletSet=N,ACTION
+# Outlet action verbs for !OutletSet=N,ACTION[,DELAY]
 OUTLET_ON: Final[str] = "ON"
 OUTLET_OFF: Final[str] = "OFF"
+OUTLET_TOGGLE: Final[str] = "TOGGLE"
 OUTLET_RESET: Final[str] = "RESET"
+
+# RESET delay bounds per vendor PDF v2.4 (seconds).
+RESET_DELAY_MIN: Final[int] = 1
+RESET_DELAY_MAX: Final[int] = 600
 
 
 # --- encoders -----------------------------------------------------------
 
 
-def encode_outlet_set(index: int, action: str) -> str:
-    """Build the wire form of ``!OutletSet=N,ACTION``.
+def encode_outlet_set(index: int, action: str, *, delay: int | None = None) -> str:
+    """Build the wire form of ``!OutletSet=N,ACTION[,DELAY]``.
 
-    ``index`` is 1-based to match the device's own outlet numbering.
-    ``action`` must be one of ``ON``/``OFF``/``RESET``.
+    ``index`` is 1-based; pass ``0`` with ``action=RESET`` to reset every
+    outlet (per the vendor PDF). ``action`` must be one of
+    ``ON``/``OFF``/``TOGGLE``/``RESET``. ``delay`` is only valid with
+    ``RESET`` and must be in the inclusive range
+    ``[RESET_DELAY_MIN, RESET_DELAY_MAX]`` seconds — it overrides the
+    outlet's configured power-on delay for this reset only.
     """
-    if index < 1:
-        raise ValueError(f"outlet index must be >= 1, got {index}")
-    if action not in (OUTLET_ON, OUTLET_OFF, OUTLET_RESET):
+    if index < 0:
+        raise ValueError(f"outlet index must be >= 0, got {index}")
+    if index == 0 and action != OUTLET_RESET:
+        raise ValueError("outlet index 0 is only valid with action=RESET")
+    if action not in (OUTLET_ON, OUTLET_OFF, OUTLET_TOGGLE, OUTLET_RESET):
         raise ValueError(f"invalid outlet action: {action!r}")
+    if delay is not None:
+        if action != OUTLET_RESET:
+            raise ValueError("delay is only valid with action=RESET")
+        if not (RESET_DELAY_MIN <= delay <= RESET_DELAY_MAX):
+            raise ValueError(
+                f"reset delay must be in [{RESET_DELAY_MIN}, {RESET_DELAY_MAX}] seconds, "
+                f"got {delay}"
+            )
+        return f"{SET_OUTLET}={index},{action},{delay}"
     return f"{SET_OUTLET}={index},{action}"
 
 
@@ -120,6 +141,9 @@ def expect_value(command: str, raw: str) -> str:
     change). Both carry the same payload shape for the same command name,
     so both are accepted here.
 
+    ``command`` may include arguments (e.g. ``?OutletPowerStatus=1``);
+    only the command name is used for prefix matching.
+
     Raises :class:`WattboxCommandUnsupported` if the device responded
     ``#Error``. Raises :class:`WattboxProtocolError` for anything else
     that doesn't look like ``Cmd=value``.
@@ -127,9 +151,8 @@ def expect_value(command: str, raw: str) -> str:
     stripped = raw.strip()
     if stripped == ERROR_SENTINEL:
         raise WattboxCommandUnsupported(command)
-    # The command constant is e.g. "?Model"; the bare name is "Model".
-    # Accept either "?Model=" or "~Model=" as a valid prefix.
-    bare = command.lstrip("?~")
+    # ``?Model`` -> ``Model``; ``?OutletPowerStatus=1`` -> ``OutletPowerStatus``.
+    bare = command_name(command)
     for prefix in (f"?{bare}=", f"~{bare}="):
         if stripped.startswith(prefix):
             return stripped[len(prefix) :]
@@ -254,8 +277,9 @@ def parse_outlet_names(value: str) -> list[str]:
 def parse_power_status(value: str) -> PowerStatus:
     """Parse ``?PowerStatus`` value -> :class:`PowerStatus`.
 
-    Wire format: ``current_a, power_w, voltage_v, safe_voltage_flag``.
-    Example: ``0.27,81.88,123.69,0``.
+    Wire format per vendor PDF v2.4:
+    ``current_a, power_w, voltage_v, safe_voltage_flag``.
+    Example: ``60.00,600.00,110.00,1``.
     """
     parts = [p.strip() for p in value.split(",")]
     if len(parts) != 4:
@@ -271,6 +295,32 @@ def parse_power_status(value: str) -> PowerStatus:
         )
     except ValueError as e:
         raise WattboxProtocolError(f"bad numeric in ?PowerStatus: {value!r}") from e
+
+
+def parse_outlet_power_status(value: str) -> OutletPowerStatus:
+    """Parse ``?OutletPowerStatus=N`` value -> :class:`OutletPowerStatus`.
+
+    Wire format per vendor PDF v2.4:
+    ``outlet, power_w, current_a, voltage_v``.
+    Example: ``1,1.01,0.02,116.50`` -> outlet 1, 1.01W, 0.02A, 116.50V.
+
+    Note the W/A field order is **flipped** vs whole-device ``?PowerStatus``
+    (which is A,W,V,flag). That's the device's choice, not ours.
+    """
+    parts = [p.strip() for p in value.split(",")]
+    if len(parts) != 4:
+        raise WattboxProtocolError(
+            f"expected 4 fields in ?OutletPowerStatus, got {len(parts)}: {value!r}"
+        )
+    try:
+        return OutletPowerStatus(
+            outlet=int(parts[0]),
+            power_watts=float(parts[1]),
+            current_amps=float(parts[2]),
+            voltage_volts=float(parts[3]),
+        )
+    except ValueError as e:
+        raise WattboxProtocolError(f"bad numeric in ?OutletPowerStatus: {value!r}") from e
 
 
 def parse_ups_status(value: str) -> UPSStatus:

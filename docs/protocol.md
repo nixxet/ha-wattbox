@@ -1,9 +1,32 @@
 # WattBox `?Cmd` / `!Cmd` protocol reference
 
-Authoritative source for the modern Telnet/SSH ASCII control protocol used by
-WattBox WB-250-IPW-2 (fw 2.9.0.2) and WB-800-IPVM-12 (fw 2.10.0.0). Built from
-each device's own `?Help` output plus the response shapes captured live on
-2026-05-19.
+Built from three authoritative sources, in priority order:
+
+1. **SnapAV WattBox Integration Protocol PDF v2.4** (`rev20210527`) — the
+   vendor specification. Defines every command's wire format. Locally
+   archived at `.workdir/wattbox-api/vendor-docs/wattbox-api-v2.4.pdf`
+   (clone of [michaelahern/wattbox-api](https://github.com/michaelahern/wattbox-api)).
+2. **`?Help` output** captured from real WB-250-IPW-2 (fw 2.9.0.2) and
+   WB-800-IPVM-12 (fw 2.10.0.0) on 2026-05-19 — the device's own
+   per-firmware command list.
+3. **Live probe captures** — verified response shapes, including for
+   commands the PDF leaves vague.
+
+Where the PDF and live observation disagree, **live observation wins** and
+the discrepancy is called out.
+
+## Operational constraints (from vendor PDF)
+
+- **Maximum 10 simultaneous connections** to the integration listener.
+  HA may exceed this if multiple clients hammer the device — keep one
+  long-lived connection per box.
+- **SSH passwords limited to 13 characters** (PDF: "There is a 13-character
+  limit on passwords used for SSH user credentials"). Telnet has no
+  documented limit. If you can't SSH with a longer password, that's why.
+- **Lockout is per-protocol** (verified live): Telnet and SSH have
+  independent failure counters, the web UI is a third independent path.
+- **OvrC overrides local listener config** (verified live): disabling
+  Telnet locally can be silently re-enabled on the next OvrC sync.
 
 ## Session lifecycle
 
@@ -90,22 +113,30 @@ Source: each device's `?Help` output. Columns:
 | `?OutletStatus` | ✓ | ✓ | `?OutletStatus=1,1,0,...` (one per outlet) | implemented |
 | `?OutletName` | ✓ | ✓ | `?OutletName={Dish Hopper},{EA3},...` (brace-delimited) | implemented |
 | `?OutletPowerOnDelay` | ✓ | ✓ | `?OutletPowerOnDelay=11,4,10,31,5,12,2,7,8,9,30,6` (sec per outlet) | documented |
-| `!OutletSet=N,ACTION` | ✓ | ✓ | `OK` or `~OutletStatus=...` | implemented |
-| `!OutletNameSet=N,NAME` | ✓ | ✓ | unverified — rename outlet N | unverified |
-| `!OutletNameSetAll=N1,N2,...` | ✓ | ✓ | unverified — bulk rename | unverified |
-| `!OutletPowerOnDelaySet=N,SECONDS` | ✓ | ✓ | unverified — per-outlet boot delay | unverified |
-| `!OutletModeSet` | ✓ | ✓ | unverified — outlet mode (locked/unlocked) | unverified |
-| `!OutletRebootSet` | ✓ | ✓ | unverified — outlet reboot behaviour | unverified |
+| `!OutletSet=N,ACTION[,DELAY]` | ✓ | ✓ | `OK` or `~OutletStatus=...` | implemented |
+| `!OutletNameSet=N,NAME` | ✓ | ✓ | `OK` (PDF). Renames outlet N. | documented |
+| `!OutletNameSetAll={N1},{N2},...` | ✓ | ✓ | `OK` (PDF). Brackets required around each name; order matters from outlet 1. | documented |
+| `!OutletPowerOnDelaySet=N,SECONDS` | ✓ | ✓ | `OK` (PDF). SECONDS in [1, 600]. | documented |
+| `!OutletModeSet=N,MODE` | ✓ | ✓ | `OK` (PDF). MODE: 0=Enabled, 1=Disabled, 2=Reset Only. | documented |
+| `!OutletRebootSet=OP,OP,...` | ✓ | ✓ | `OK` (PDF). One OP per outlet. OP: 0=Or (any host times out), 1=And (all hosts time out). | documented |
 
-Outlet indices are **1-based**. `ACTION` is `ON` / `OFF` / `RESET`.
-`!OutletSet=0,RESET` power-cycles **all** outlets — use with care.
+`ACTION` per PDF: **`ON` / `OFF` / `TOGGLE` / `RESET`**. Outlet indices are
+1-based. `!OutletSet=0,RESET` power-cycles **all** outlets — use with care.
+For `RESET`, the optional `DELAY` (1–600 seconds) overrides the outlet's
+configured power-on delay for this reset only.
 
 ### Power metering
 
 | Cmd | 250 | 800 | Response | Status |
 |---|:-:|:-:|---|---|
-| `?PowerStatus` | ✗ (`#Error`) | ✓ | `?PowerStatus=0.27,81.88,123.69,0` -> `A, W, V, safe_flag` | implemented |
-| `?OutletPowerStatus=N` | ✗ | ✓ | `?OutletPowerStatus=N,A,W,V` | documented |
+| `?PowerStatus` | ✗ (`#Error`) | ✓ | `?PowerStatus=A, W, V, safe_flag`. PDF example: `60.00,600.00,110.00,1` | implemented |
+| `?OutletPowerStatus=N` | ✗ | ✓ | `?OutletPowerStatus=N, W, A, V`. PDF example: `1,1.01,0.02,116.50` -> outlet 1, 1.01 W, 0.02 A, 116.50 V | implemented |
+
+**Field-order gotcha.** Whole-device `?PowerStatus` is **A,W,V,flag** but
+per-outlet `?OutletPowerStatus` is **N,W,A,V** — watts and amps swap
+positions. This is the vendor's choice, documented in the PDF v2.4. The
+library handles both correctly; if you're writing your own parser, mind
+the difference.
 
 `?OutletPowerStatus` requires the outlet index. Bare `?OutletPowerStatus`
 returns `#Error`; valid range is 1..N.
@@ -126,9 +157,9 @@ returns `#Error`; valid range is 1..N.
 |---|:-:|:-:|---|---|
 | `?AutoReboot` | ✓ | ✓ | `?AutoReboot=0` (0=off, 1=on) | implemented |
 | `!AutoReboot=0\|1` | ✓ | ✓ | `OK` | implemented |
-| `!AutoRebootTimeoutSet=...` | ✓ | ✓ | unverified — auto-reboot timeout/hit-count | unverified |
-| `!HostAdd=...` | ✓ | ✓ | unverified — add ping-monitored host (the `wbPingHosts` callback from the boot log) | unverified |
-| `!ScheduleAdd=...` | ✓ | ✓ | unverified — add a scheduled reboot | unverified |
+| `!AutoRebootTimeoutSet=TIMEOUT,COUNT,PING_DELAY,REBOOT_ATTEMPTS` | ✓ | ✓ | `OK` (PDF). TIMEOUT [1,60]s; COUNT [1,10]; PING_DELAY [1,30]min; REBOOT_ATTEMPTS 0 (unlimited) or [1,10]. | documented |
+| `!HostAdd=NAME,IP,{N,N,...}` | ✓ | ✓ | `OK` (PDF). NAME label; IP host/IP to ping; outlet array with required braces. | documented |
+| `!ScheduleAdd={NAME},{N,N,...},{ACTION},{FREQ},{DAYS\|DATE},{TIME}` | ✓ | ✓ | `OK` (PDF). ACTION: 0=Off, 1=On, 2=Reset. FREQ: 0=Once, 1=Recurring. Recurring DAYS = 7-bool array [s,m,t,w,t,f,s] e.g. `{0,1,0,1,0,1,0}` for MWF. Once DATE = `{yyyy/mm/dd}`. TIME 24-hour `hh:mm`. | documented |
 
 There is **no `?Schedule(s)` / `?Hosts` query** on tested firmware — all such
 probes returned `#Error`. Schedules can be added but apparently not listed via
@@ -165,6 +196,7 @@ on the next OvrC sync.
 | Cmd | 250 | 800 | Response | Status |
 |---|:-:|:-:|---|---|
 | `?NetworkGet` | ✓ | ✓ | unverified — read network config | unverified |
+| `!NetworkSet=HOST[,IP,SUBNET,GATEWAY,DNS1,DNS2]` | ✓ | ✓ | `OK` then device reboots (PDF). DHCP: send HOST only. Static: HOST + IP + SUBNET + GATEWAY + DNS1 required; DNS2 optional (defaults to 8.8.8.8). | documented |
 
 ### Faceplate / environmental adapter (WB-800 only)
 

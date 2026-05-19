@@ -97,6 +97,11 @@ WB800_RESPONSES: dict[str, str | Callable[[], str]] = {
         "{Vivint Camera},{Hikvision NVR},{PS5},{Unifi 24 Switch}"
     ),
     "?PowerStatus": "?PowerStatus=0.27,81.88,123.69,0",
+    # Per-outlet power: ?OutletPowerStatus=N,W,A,V (vendor PDF v2.4 field order)
+    **{
+        f"?OutletPowerStatus={i}": f"?OutletPowerStatus={i},{i * 1.5:.2f},{i * 0.02:.2f},123.82"
+        for i in range(1, 13)
+    },
     "?UPSStatus": "?UPSStatus=100,8,Good,False,160,True,False",
     "?UPSConnection": "?UPSConnection=1",
     "?AutoReboot": "?AutoReboot=0",
@@ -117,6 +122,8 @@ WB250_RESPONSES: dict[str, str | Callable[[], str]] = {
     "?OutletStatus": "?OutletStatus=1,1",
     "?OutletName": "?OutletName={Outlet 1},{Outlet 2}",
     "?PowerStatus": "#Error",
+    # WB-250 has no per-outlet metering either.
+    "?OutletPowerStatus=1": "#Error",
     "?UPSStatus": "#Error",
     "?UPSConnection": "#Error",
     "?AutoReboot": "?AutoReboot=0",
@@ -139,6 +146,7 @@ async def test_identify_wb800_populates_capabilities() -> None:
     assert info.outlet_count == 12
     assert c.capabilities == Capabilities(
         power_status=True,
+        outlet_power_status=True,
         ups=True,
         auto_reboot=True,
         mute=False,
@@ -156,6 +164,7 @@ async def test_identify_wb250_marks_missing_caps_unsupported() -> None:
     assert info.outlet_count == 2
     assert c.capabilities == Capabilities(
         power_status=False,
+        outlet_power_status=False,
         ups=False,
         auto_reboot=True,
         mute=False,
@@ -189,6 +198,13 @@ async def test_snapshot_wb800_full_surface() -> None:
     assert snap.power == PowerStatus(
         current_amps=0.27, power_watts=81.88, voltage_volts=123.69, safe_voltage=False
     )
+    # Per-outlet power: one entry per outlet, in index order, fields W/A/V.
+    assert len(snap.outlet_power) == 12
+    assert snap.outlet_power[0].outlet == 1
+    assert snap.outlet_power[0].power_watts == 1.5
+    assert snap.outlet_power[0].current_amps == 0.02
+    assert snap.outlet_power[0].voltage_volts == 123.82
+    assert snap.outlet_power[11].outlet == 12
     assert snap.ups == UPSStatus(
         battery_charge_pct=100,
         battery_load_pct=8,
@@ -209,6 +225,7 @@ async def test_snapshot_wb250_no_power_no_ups() -> None:
     assert snap.info.model == "WB-250-IPW-2"
     assert len(snap.outlets) == 2
     assert snap.power is None
+    assert snap.outlet_power == []  # WB-250: capability off -> empty list, no probes
     assert snap.ups is None
     assert snap.ups_connected is None
     assert snap.auto_reboot is False  # capability said yes, value is "off"
@@ -219,14 +236,11 @@ async def test_snapshot_skips_unsupported_commands_after_identify() -> None:
     t = _ScriptedTransport(dict(WB250_RESPONSES))
     async with WattboxClient("10.0.0.1", "u", "p", transport=t) as c:
         await c.snapshot()
-    # After identify (which probes everything once), snapshot should skip
-    # the optional reads it knows will fail.
     sent_after_identify = [cmd for cmd in t.sent if cmd.startswith("?")]
-    # Exact count: identify sends 5 mandatory + 6 capability probes = 11,
-    # then snapshot sends outlet status + outlet name + auto_reboot = 3.
-    # Power/UPS/etc are NOT re-sent because caps said unsupported.
-    assert "?PowerStatus" in sent_after_identify  # from capability probe only
-    assert sent_after_identify.count("?PowerStatus") == 1
+    # Capability probes happen once at identify. Snapshot must NOT re-send
+    # the optional reads it knows will fail.
+    assert sent_after_identify.count("?PowerStatus") == 1  # probe only
+    assert sent_after_identify.count("?OutletPowerStatus=1") == 1  # probe only
     assert sent_after_identify.count("?UPSStatus") == 1
     assert sent_after_identify.count("?OutletStatus") == 1  # snapshot only
 

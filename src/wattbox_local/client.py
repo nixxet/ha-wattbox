@@ -41,6 +41,7 @@ from .exceptions import (
 from .models import (
     Capabilities,
     DeviceInfo,
+    OutletPowerStatus,
     OutletState,
     PowerStatus,
     Snapshot,
@@ -54,6 +55,7 @@ from .protocol import (
     CMD_MUTE,
     CMD_OUTLET_COUNT,
     CMD_OUTLET_NAME,
+    CMD_OUTLET_POWER_STATUS,
     CMD_OUTLET_STATUS,
     CMD_POWER_STATUS,
     CMD_SAFE_VOLTAGE,
@@ -64,12 +66,14 @@ from .protocol import (
     OUTLET_OFF,
     OUTLET_ON,
     OUTLET_RESET,
+    OUTLET_TOGGLE,
     encode_auto_reboot,
     encode_outlet_set,
     expect_value,
     parse_auto_reboot,
     parse_int,
     parse_outlet_names,
+    parse_outlet_power_status,
     parse_outlet_status,
     parse_power_status,
     parse_ups_connection,
@@ -194,6 +198,7 @@ class WattboxClient:
 
         states = await self._read_outlet_states()
         power = await self._maybe_read_power(caps)
+        outlet_power = await self._maybe_read_outlet_power(caps, info.outlet_count)
         ups, ups_connected = await self._maybe_read_ups(caps)
         auto_reboot = await self._maybe_read_auto_reboot(caps)
 
@@ -201,6 +206,7 @@ class WattboxClient:
             info=info,
             capabilities=caps,
             outlets=states,
+            outlet_power=outlet_power,
             power=power,
             ups=ups,
             ups_connected=ups_connected,
@@ -217,9 +223,18 @@ class WattboxClient:
         """Switch one outlet on or off (1-based index)."""
         await self._send_set(encode_outlet_set(index, OUTLET_ON if on else OUTLET_OFF))
 
-    async def reset_outlet(self, index: int) -> None:
-        """Power-cycle one outlet (off, brief pause, on — handled by device)."""
-        await self._send_set(encode_outlet_set(index, OUTLET_RESET))
+    async def toggle_outlet(self, index: int) -> None:
+        """Flip one outlet's state (1-based index). Vendor-supported action."""
+        await self._send_set(encode_outlet_set(index, OUTLET_TOGGLE))
+
+    async def reset_outlet(self, index: int, *, delay: int | None = None) -> None:
+        """Power-cycle one outlet.
+
+        ``delay`` (1-600 seconds) overrides the outlet's configured
+        power-on delay for this reset only. Pass ``index=0`` to reset
+        every outlet on the device.
+        """
+        await self._send_set(encode_outlet_set(index, OUTLET_RESET, delay=delay))
 
     async def set_auto_reboot(self, enabled: bool) -> None:
         await self._send_set(encode_auto_reboot(enabled))
@@ -251,6 +266,29 @@ class WattboxClient:
             # Device unexpectedly changed its mind — downgrade silently.
             return None
 
+    async def _maybe_read_outlet_power(
+        self, caps: Capabilities, outlet_count: int
+    ) -> list[OutletPowerStatus]:
+        """Read per-outlet power for every outlet, in index order.
+
+        Each outlet requires its own round-trip
+        (``?OutletPowerStatus=N``), so this is the chattiest part of a
+        snapshot. Skipped entirely when the device doesn't support it.
+        """
+        if not caps.outlet_power_status:
+            return []
+        result: list[OutletPowerStatus] = []
+        for i in range(1, outlet_count + 1):
+            cmd = f"{CMD_OUTLET_POWER_STATUS}={i}"
+            try:
+                raw = await self._send(cmd)
+                result.append(parse_outlet_power_status(expect_value(cmd, raw)))
+            except WattboxCommandUnsupported:
+                # Per-outlet support may degrade mid-poll for individual
+                # outlets on some firmwares; skip rather than fail the snapshot.
+                _LOGGER.debug("outlet %d power readout unsupported on %s", i, self.host)
+        return result
+
     async def _maybe_read_ups(self, caps: Capabilities) -> tuple[UPSStatus | None, bool | None]:
         if not caps.ups:
             return None, None
@@ -274,9 +312,14 @@ class WattboxClient:
             return None
 
     async def _probe_capabilities(self) -> Capabilities:
-        """Send each optional query once, recording which the device supports."""
+        """Send each optional query once, recording which the device supports.
+
+        For ``?OutletPowerStatus`` we probe with outlet 1 since the bare
+        command returns ``#Error`` (it requires an argument).
+        """
         return Capabilities(
             power_status=await self._is_supported(CMD_POWER_STATUS),
+            outlet_power_status=await self._is_supported(f"{CMD_OUTLET_POWER_STATUS}=1"),
             ups=await self._is_supported(CMD_UPS_STATUS),
             auto_reboot=await self._is_supported(CMD_AUTO_REBOOT),
             mute=await self._is_supported(CMD_MUTE),
@@ -285,11 +328,15 @@ class WattboxClient:
         )
 
     async def _is_supported(self, command: str) -> bool:
-        try:
-            expect_value(command, await self._send(command))
-        except WattboxCommandUnsupported:
-            return False
-        return True
+        """True if the device answers without ``#Error``.
+
+        Doesn't try to parse the value — capability detection only cares
+        whether the command is recognised. Some commands (e.g.
+        ``?OutletPowerStatus=N``) require args that the bare-name
+        ``expect_value`` parser can't strip.
+        """
+        raw = await self._send(command)
+        return not raw.strip().startswith("#Error")
 
     async def _query_str(self, command: str) -> str:
         return expect_value(command, await self._send(command))

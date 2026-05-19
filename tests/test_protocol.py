@@ -319,7 +319,32 @@ class TestEncodeOutletSet:
 
     def test_bad_action_rejected(self) -> None:
         with pytest.raises(ValueError):
-            encode_outlet_set(1, "TOGGLE")
+            encode_outlet_set(1, "INVALID")
+
+    def test_toggle_action_accepted(self) -> None:
+        # TOGGLE is documented as a valid action in the vendor PDF.
+        assert encode_outlet_set(7, "TOGGLE") == "!OutletSet=7,TOGGLE"
+
+    def test_reset_with_delay(self) -> None:
+        assert encode_outlet_set(3, "RESET", delay=10) == "!OutletSet=3,RESET,10"
+
+    def test_reset_delay_out_of_range(self) -> None:
+        with pytest.raises(ValueError):
+            encode_outlet_set(3, "RESET", delay=0)
+        with pytest.raises(ValueError):
+            encode_outlet_set(3, "RESET", delay=601)
+
+    def test_delay_with_non_reset_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            encode_outlet_set(3, "ON", delay=5)
+
+    def test_reset_all_with_index_zero(self) -> None:
+        # Per vendor PDF: index 0 + RESET means "reset all outlets".
+        assert encode_outlet_set(0, "RESET") == "!OutletSet=0,RESET"
+
+    def test_index_zero_with_non_reset_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            encode_outlet_set(0, "ON")
 
 
 class TestEncodeAutoReboot:

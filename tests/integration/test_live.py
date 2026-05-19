@@ -95,11 +95,17 @@ async def test_wb800_full_snapshot_returns_real_values(wb800_creds: DeviceCreds)
         assert 0 <= snap.ups.battery_charge_pct <= 100
         assert snap.ups.battery_health in BatteryHealth
         assert snap.ups_connected is True
-        # exactly 12 outlets, names populated
         assert len(snap.outlets) == 12
         for outlet in snap.outlets:
             assert outlet.name
             assert outlet.index in range(1, 13)
+        # Per-outlet power: one entry per outlet, real voltage on each.
+        assert len(snap.outlet_power) == 12
+        for op in snap.outlet_power:
+            assert op.outlet in range(1, 13)
+            assert 90.0 <= op.voltage_volts <= 135.0
+            assert op.power_watts >= 0.0
+            assert op.current_amps >= 0.0
 
 
 async def test_wb800_set_outlet_roundtrip(wb800_creds: DeviceCreds) -> None:
