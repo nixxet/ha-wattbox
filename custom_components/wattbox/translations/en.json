@@ -8,7 +8,8 @@
           "host": "Host (IP or DNS name)",
           "username": "Username",
           "password": "Password",
-          "port": "Telnet port"
+          "transport": "Transport (SSH preferred, Telnet works without SSH password setup)",
+          "port": "Port (auto: 22 for SSH, 23 for Telnet)"
         }
       },
       "reauth_confirm": {

@@ -9,6 +9,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/nixxet/ha-wattbox/issues",
   "loggers": ["wattbox_local", "custom_components.wattbox"],
-  "requirements": ["telnetlib3>=2.0.4"],
+  "requirements": ["telnetlib3>=2.0.4", "asyncssh>=2.18"],
   "version": "0.1.0"
 }

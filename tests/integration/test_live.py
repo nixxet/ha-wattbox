@@ -19,6 +19,7 @@ from wattbox_local import (
     BatteryHealth,
     WattboxClient,
 )
+from wattbox_local.transport import SSHTransport
 
 from .conftest import DeviceCreds
 
@@ -126,4 +127,48 @@ async def test_wb250b_identify(wb250b_creds: DeviceCreds) -> None:
 
 async def test_wb250b_set_outlet_roundtrip(wb250b_creds: DeviceCreds) -> None:
     async with WattboxClient(wb250b_creds.host, wb250b_creds.username, wb250b_creds.password) as wb:
+        await _toggle_and_restore(wb, wb250b_creds.test_outlet)
+
+
+# ---- SSH transport (Phase 3) -------------------------------------------
+
+
+def _ssh_client(creds: DeviceCreds) -> WattboxClient:
+    transport = SSHTransport(creds.host, creds.username, creds.password)
+    return WattboxClient(creds.host, creds.username, creds.password, transport=transport)
+
+
+async def test_wb250_ssh_identify_and_snapshot(wb250_creds: DeviceCreds) -> None:
+    async with _ssh_client(wb250_creds) as wb:
+        info = await wb.identify()
+        assert info.model == "WB-250-IPW-2"
+        assert info.outlet_count == 2
+        snap = await wb.snapshot()
+        assert len(snap.outlets) == 2
+
+
+async def test_wb800_ssh_full_snapshot(wb800_creds: DeviceCreds) -> None:
+    async with _ssh_client(wb800_creds) as wb:
+        snap = await wb.snapshot()
+        assert snap.info.model == "WB-800-IPVM-12"
+        assert snap.power is not None
+        assert snap.ups is not None
+        assert len(snap.outlet_power) == 12
+
+
+async def test_wb800_ssh_outlet_roundtrip(wb800_creds: DeviceCreds) -> None:
+    async with _ssh_client(wb800_creds) as wb:
+        await _toggle_and_restore(wb, wb800_creds.test_outlet)
+
+
+async def test_wb250b_ssh_identify(wb250b_creds: DeviceCreds) -> None:
+    """SSH on .152 works even when Telnet is API-locked."""
+    async with _ssh_client(wb250b_creds) as wb:
+        info = await wb.identify()
+        assert info.model == "WB-250-IPW-2"
+        assert info.outlet_count == 2
+
+
+async def test_wb250b_ssh_outlet_roundtrip(wb250b_creds: DeviceCreds) -> None:
+    async with _ssh_client(wb250b_creds) as wb:
         await _toggle_and_restore(wb, wb250b_creds.test_outlet)

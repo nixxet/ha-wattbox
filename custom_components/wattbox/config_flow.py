@@ -28,19 +28,24 @@ from wattbox_local import (
     WattboxConnectionError,
     WattboxLockoutError,
 )
+from wattbox_local.transport import SSHTransport, TelnetTransport
 
 from .const import (
     CONF_HOST,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
+    CONF_TRANSPORT,
     CONF_USERNAME,
-    DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL_S,
+    DEFAULT_TRANSPORT,
     DEFAULT_USERNAME,
     DOMAIN,
     MAX_SCAN_INTERVAL_S,
     MIN_SCAN_INTERVAL_S,
+    TRANSPORT_SSH,
+    TRANSPORTS,
+    default_port_for,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,16 +53,26 @@ _LOGGER = logging.getLogger(__name__)
 
 def _user_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
     defaults = defaults or {}
+    transport = defaults.get(CONF_TRANSPORT, DEFAULT_TRANSPORT)
     return vol.Schema(
         {
             vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): str,
             vol.Required(CONF_USERNAME, default=defaults.get(CONF_USERNAME, DEFAULT_USERNAME)): str,
             vol.Required(CONF_PASSWORD, default=defaults.get(CONF_PASSWORD, "")): str,
-            vol.Optional(CONF_PORT, default=defaults.get(CONF_PORT, DEFAULT_PORT)): vol.All(
-                int, vol.Range(min=1, max=65535)
-            ),
+            vol.Required(CONF_TRANSPORT, default=transport): vol.In(TRANSPORTS),
+            vol.Optional(
+                CONF_PORT, default=defaults.get(CONF_PORT, default_port_for(transport))
+            ): vol.All(int, vol.Range(min=1, max=65535)),
         }
     )
+
+
+def _build_transport(
+    host: str, port: int, username: str, password: str, transport_kind: str
+) -> SSHTransport | TelnetTransport:
+    if transport_kind == TRANSPORT_SSH:
+        return SSHTransport(host, username, password, port=port)
+    return TelnetTransport(host, username, password, port=port)
 
 
 def _reauth_schema() -> vol.Schema:
@@ -69,13 +84,16 @@ def _reauth_schema() -> vol.Schema:
     )
 
 
-async def _probe(host: str, port: int, username: str, password: str) -> tuple[str, str]:
+async def _probe(
+    host: str, port: int, username: str, password: str, transport_kind: str
+) -> tuple[str, str]:
     """Open a one-shot client, identify, return (service_tag, model).
 
     Raises the same WattBox* exceptions the high-level client raises so
     the caller can map them to flow errors.
     """
-    client = WattboxClient(host=host, username=username, password=password, port=port)
+    transport = _build_transport(host, port, username, password, transport_kind)
+    client = WattboxClient(host=host, username=username, password=password, transport=transport)
     try:
         await client.connect()
         info = await client.identify()
@@ -95,12 +113,16 @@ class WattboxConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Allow CONF_PORT to default per-transport if the user didn't override.
+            transport_kind = user_input.get(CONF_TRANSPORT, DEFAULT_TRANSPORT)
+            user_input.setdefault(CONF_PORT, default_port_for(transport_kind))
             try:
                 service_tag, model = await _probe(
                     user_input[CONF_HOST],
                     user_input[CONF_PORT],
                     user_input[CONF_USERNAME],
                     user_input[CONF_PASSWORD],
+                    transport_kind,
                 )
             except WattboxAuthError:
                 errors["base"] = "invalid_auth"
@@ -132,12 +154,14 @@ class WattboxConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._reauth_entry
         errors: dict[str, str] = {}
         if user_input is not None:
+            transport_kind = entry.data.get(CONF_TRANSPORT, DEFAULT_TRANSPORT)
             try:
                 service_tag, _ = await _probe(
                     entry.data[CONF_HOST],
-                    entry.data.get(CONF_PORT, DEFAULT_PORT),
+                    entry.data.get(CONF_PORT, default_port_for(transport_kind)),
                     user_input[CONF_USERNAME],
                     user_input[CONF_PASSWORD],
+                    transport_kind,
                 )
             except WattboxAuthError:
                 errors["base"] = "invalid_auth"

@@ -11,15 +11,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from wattbox_local import WattboxAuthError, WattboxClient, WattboxLockoutError
+from wattbox_local.transport import SSHTransport, TelnetTransport
 
 from .const import (
     CONF_HOST,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
+    CONF_TRANSPORT,
     CONF_USERNAME,
-    DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL_S,
+    DEFAULT_TRANSPORT,
+    TRANSPORT_SSH,
+    default_port_for,
 )
 from .coordinator import WattboxCoordinator
 
@@ -37,12 +41,18 @@ type WattboxConfigEntry = ConfigEntry[WattboxCoordinator]
 
 async def async_setup_entry(hass: HomeAssistant, entry: WattboxConfigEntry) -> bool:
     """Set up a WattBox from a config entry."""
-    client = WattboxClient(
-        host=entry.data[CONF_HOST],
-        username=entry.data[CONF_USERNAME],
-        password=entry.data[CONF_PASSWORD],
-        port=entry.data.get(CONF_PORT, DEFAULT_PORT),
-    )
+    transport_kind = entry.data.get(CONF_TRANSPORT, DEFAULT_TRANSPORT)
+    port = entry.data.get(CONF_PORT, default_port_for(transport_kind))
+    host = entry.data[CONF_HOST]
+    username = entry.data[CONF_USERNAME]
+    password = entry.data[CONF_PASSWORD]
+
+    if transport_kind == TRANSPORT_SSH:
+        transport = SSHTransport(host, username, password, port=port)
+    else:
+        transport = TelnetTransport(host, username, password, port=port)
+
+    client = WattboxClient(host=host, username=username, password=password, transport=transport)
 
     try:
         await client.connect()
