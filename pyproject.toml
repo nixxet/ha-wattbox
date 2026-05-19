@@ -64,6 +64,8 @@ ignore = ["E501"]  # line length handled by formatter
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]
+# Public transport API deliberately exposes a `timeout=` parameter (mirrors httpx/aiohttp/asyncssh).
+"src/wattbox_local/transport.py" = ["ASYNC109"]
 
 [tool.mypy]
 python_version = "3.13"

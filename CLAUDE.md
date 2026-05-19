@@ -15,9 +15,9 @@ Personal-context project. Standalone async Python library + Home Assistant integ
 |---|---|---|---|
 | 10.10.10.150 | WB-250-IPW-2 (fw 2.9.0.2) | WattBoxGarage | 2 outlets, no power metering |
 | 10.10.10.156 | WB-800-IPVM-12 (fw 2.10.0.0) | WattBox | 12 outlets, power metering, UPS attached |
-| 10.10.10.152 | WB-250-IPW-2 (presumed) | TBD | API-locked at probe time; verify once cleared |
+| 10.10.10.152 | WB-250-IPW-2 (presumed) | TBD | User-confirmed creds; verify outlet count once unlocked |
 
-Credentials are stored at `tests/integration/.creds` (gitignored). Never commit credentials.
+Credentials are loaded from `~/.wb-creds` (preferred — outside the repo) or `tests/integration/.creds` (gitignored). Never commit credentials.
 
 ## Lockout rule
 
