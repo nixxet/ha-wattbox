@@ -339,6 +339,56 @@ async def test_send_command_with_allow_push_returns_push(patch_telnet: Any) -> N
     await t.close()
 
 
+async def test_send_command_discards_stale_reply_for_other_command(patch_telnet: Any) -> None:
+    """A late ?UPSVoltageRange reply must not be returned as a ?Https answer.
+
+    This is the response-shift bug we hit live: a slow command's reply
+    arrived after our timeout and polluted the next command's slot.
+    """
+    s = patch_telnet(
+        [
+            "Please Login to Continue\r\nUsername: ",
+            "Password: ",
+            "Successfully Logged In!\r\n",
+            "?UPSVoltageRange=N\r\n?Https=False\r\n",
+        ]
+    )
+    t = TelnetTransport("10.0.0.1", "u", "p")
+    await t.connect()
+    # Asking for ?Https — the stale ?UPSVoltageRange reply must be skipped.
+    assert await t.send_command("?Https") == "?Https=False"
+    assert s["writer"].sent[-1] == "?Https\n"
+    await t.close()
+
+
+async def test_close_sends_exit_command(patch_telnet: Any) -> None:
+    s = patch_telnet(
+        [
+            "Please Login to Continue\r\nUsername: ",
+            "Password: ",
+            "Successfully Logged In!\r\n",
+        ]
+    )
+    t = TelnetTransport("10.0.0.1", "u", "p")
+    await t.connect()
+    await t.close()
+    assert "!Exit\n" in s["writer"].sent
+
+
+async def test_close_twice_is_safe(patch_telnet: Any) -> None:
+    patch_telnet(
+        [
+            "Please Login to Continue\r\nUsername: ",
+            "Password: ",
+            "Successfully Logged In!\r\n",
+        ]
+    )
+    t = TelnetTransport("10.0.0.1", "u", "p")
+    await t.connect()
+    await t.close()
+    await t.close()  # no exception
+
+
 async def test_open_telnet_closes_even_on_exception(patch_telnet: Any) -> None:
     s = patch_telnet(
         [

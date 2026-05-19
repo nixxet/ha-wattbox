@@ -148,6 +148,36 @@ def is_async_push(line: str) -> bool:
     return stripped.startswith("~") and "=" in stripped
 
 
+def response_command_name(line: str) -> str | None:
+    """Extract the command name from a response line.
+
+    Examples:
+        ``?Model=WB-800-IPVM-12`` -> ``Model``
+        ``~OutletStatus=1,0``     -> ``OutletStatus``
+        ``OK``                    -> ``None`` (sentinel, no name)
+        ``#Error``                -> ``None``
+        ``Successfully Logged...`` -> ``None`` (banner)
+    """
+    stripped = line.strip()
+    if not stripped or stripped in (ACK_SENTINEL, ERROR_SENTINEL):
+        return None
+    if stripped[0] not in "?~":
+        return None
+    name = stripped[1:].split("=", 1)[0]
+    return name or None
+
+
+def command_name(command: str) -> str:
+    """Bare name of a command (drops the ``?``/``!``/``~`` prefix and any args).
+
+    ``?Model`` -> ``Model``; ``!OutletSet=2,ON`` -> ``OutletSet``.
+    """
+    stripped = command.strip()
+    if stripped and stripped[0] in "?!~":
+        stripped = stripped[1:]
+    return stripped.split("=", 1)[0]
+
+
 _LOCKOUT_RE = re.compile(
     r"locked for (?:(\d+)\s*minutes?)?(?:\s*and\s*)?(?:(\d+)\s*seconds?)?",
     re.IGNORECASE,

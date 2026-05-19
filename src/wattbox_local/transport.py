@@ -35,13 +35,20 @@ from .exceptions import (
     WattboxProtocolError,
 )
 from .protocol import (
+    ACK_SENTINEL,
+    ERROR_SENTINEL,
     LOGIN_BAD,
     LOGIN_LOCKED,
     LOGIN_OK,
     LOGIN_PROMPT_PASS,
     LOGIN_PROMPT_USER,
-    is_async_push,
+    command_name,
+    response_command_name,
 )
+
+# Clean-session command sent during close(). Recognised by the WattBox
+# `?Help` set; absent on some legacy firmwares (we tolerate either case).
+EXIT_COMMAND: Final[str] = "!Exit"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -199,6 +206,12 @@ class TelnetTransport(Transport):
         _LOGGER.debug("logged in to %s as %s", self.host, self._username)
 
     async def close(self) -> None:
+        # Best-effort: send !Exit so the device drops the session
+        # cleanly. Suppress everything — we're closing anyway.
+        if self._writer is not None and not self._closed:
+            with contextlib.suppress(Exception):
+                self._writer.write(EXIT_COMMAND + "\n")
+                await self._writer.drain()
         self._closed = True
         if self._writer is not None:
             with contextlib.suppress(Exception):
@@ -227,7 +240,7 @@ class TelnetTransport(Transport):
 
             try:
                 line = await asyncio.wait_for(
-                    self._read_one_response_line(allow_push=allow_push),
+                    self._read_response_for(command, allow_push=allow_push),
                     timeout=timeout,
                 )
             except TimeoutError as e:
@@ -236,25 +249,70 @@ class TelnetTransport(Transport):
                 ) from e
             return line
 
-    async def _read_one_response_line(self, *, allow_push: bool = False) -> str:
-        """Read lines until a non-blank line appears.
+    async def _read_response_for(self, command: str, *, allow_push: bool) -> str:
+        """Read until a line corresponding to ``command`` arrives.
 
-        With ``allow_push=False`` (the default), ``~Cmd=value`` lines are
-        treated as stale async notifications and skipped. With
-        ``allow_push=True`` they count as a valid response — used by set
-        commands whose only ack is the push itself.
+        Strict matching by command name so a late reply to a previously
+        timed-out request can't be mistaken for the current command's
+        response (observed on real hardware — slow commands like
+        ``?UPSVoltageRange`` reply after our timeout, polluting the next
+        slot if we don't filter by name).
+
+        Accepted lines:
+
+        * ``OK`` — set-command ack
+        * ``#Error`` — command not supported
+        * ``?<sent-name>=value`` — the synchronous reply we asked for
+        * If ``allow_push=True``: any ``~Cmd=value`` (set commands whose
+          ack is a push notification, possibly with a *different* command
+          name than the set — e.g. ``!OutletSet`` -> ``~OutletStatus``).
+        * Anything else without a recognisable prefix — surfaced so the
+          higher layer can decide (avoids hanging on unexpected banners).
+
+        Discarded:
+
+        * Blank lines.
+        * ``~Cmd=value`` push notifications when ``allow_push`` is False
+          (stale state-change notes from prior commands).
+        * ``?Cmd=value`` responses whose command name doesn't match what
+          we just sent (late replies to a prior timed-out request).
         """
         assert self._reader is not None
+        sent_name = command_name(command)
         while True:
             raw: str = await self._reader.readline()
-            if raw == "":  # EOF
+            if raw == "":
                 raise WattboxConnectionError(f"connection to {self.host} closed by peer")
             stripped: str = raw.strip()
             if not stripped:
                 continue
-            if not allow_push and is_async_push(stripped):
-                _LOGGER.debug("discarding stale async push from %s: %s", self.host, stripped)
+            if stripped in (ACK_SENTINEL, ERROR_SENTINEL):
+                return stripped
+            this_name = response_command_name(stripped)
+            if this_name is None:
+                # Banner or other unrecognised line; surface it.
+                return stripped
+            if stripped.startswith("?"):
+                if this_name == sent_name:
+                    return stripped
+                _LOGGER.debug(
+                    "discarding late ?%s reply while waiting for %s on %s",
+                    this_name,
+                    sent_name,
+                    self.host,
+                )
                 continue
+            if stripped.startswith("~"):
+                if allow_push:
+                    return stripped
+                _LOGGER.debug(
+                    "discarding stale ~%s push while waiting for ?%s on %s",
+                    this_name,
+                    sent_name,
+                    self.host,
+                )
+                continue
+            # Shouldn't happen — response_command_name covered '?' and '~'.
             return stripped
 
     async def _read_until_any(self, needles: tuple[str, ...], *, timeout: float) -> str:
