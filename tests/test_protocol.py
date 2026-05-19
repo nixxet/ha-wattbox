@@ -355,6 +355,248 @@ class TestEncodeAutoReboot:
         assert encode_auto_reboot(False) == "!AutoReboot=0"
 
 
+# --- new encoders (vendor PDF v2.4) -------------------------------------
+
+
+class TestEncodeOutletNameSet:
+    def test_basic(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set
+
+        assert encode_outlet_name_set(5, "Server") == "!OutletNameSet=5,Server"
+
+    def test_rejects_bad_index(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_name_set(0, "x")
+
+    def test_rejects_comma_and_braces(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set
+
+        for bad in (",", "{Foo", "Foo}", "a,b"):
+            with pytest.raises(ValueError):
+                encode_outlet_name_set(1, bad)
+
+    def test_rejects_empty(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_name_set(1, "")
+
+
+class TestEncodeOutletNameSetAll:
+    def test_two_names(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set_all
+
+        assert encode_outlet_name_set_all(["A", "B"]) == "!OutletNameSetAll={A},{B}"
+
+    def test_names_with_spaces_ok(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set_all
+
+        assert encode_outlet_name_set_all(["Dish Hopper", "Denon Rcv"]) == (
+            "!OutletNameSetAll={Dish Hopper},{Denon Rcv}"
+        )
+
+    def test_empty_list_rejected(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set_all
+
+        with pytest.raises(ValueError):
+            encode_outlet_name_set_all([])
+
+    def test_bad_chars_rejected(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set_all
+
+        with pytest.raises(ValueError):
+            encode_outlet_name_set_all(["ok", "{nope}"])
+
+
+class TestEncodeOutletPowerOnDelaySet:
+    def test_basic(self) -> None:
+        from wattbox_local.protocol import encode_outlet_power_on_delay_set
+
+        assert encode_outlet_power_on_delay_set(3, 10) == "!OutletPowerOnDelaySet=3,10"
+
+    def test_out_of_range(self) -> None:
+        from wattbox_local.protocol import encode_outlet_power_on_delay_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_power_on_delay_set(1, 0)
+        with pytest.raises(ValueError):
+            encode_outlet_power_on_delay_set(1, 601)
+
+
+class TestEncodeOutletModeSet:
+    @pytest.mark.parametrize("mode", [0, 1, 2])
+    def test_valid(self, mode: int) -> None:
+        from wattbox_local.protocol import encode_outlet_mode_set
+
+        assert encode_outlet_mode_set(2, mode) == f"!OutletModeSet=2,{mode}"
+
+    def test_invalid_mode_rejected(self) -> None:
+        from wattbox_local.protocol import encode_outlet_mode_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_mode_set(2, 3)
+
+
+class TestEncodeOutletRebootSet:
+    def test_two_outlets(self) -> None:
+        from wattbox_local.protocol import encode_outlet_reboot_set
+
+        assert encode_outlet_reboot_set([0, 1]) == "!OutletRebootSet=0,1"
+
+    def test_invalid_op_rejected(self) -> None:
+        from wattbox_local.protocol import encode_outlet_reboot_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_reboot_set([0, 2])
+
+    def test_empty_rejected(self) -> None:
+        from wattbox_local.protocol import encode_outlet_reboot_set
+
+        with pytest.raises(ValueError):
+            encode_outlet_reboot_set([])
+
+
+class TestEncodeAutoRebootTimeoutSet:
+    def test_basic(self) -> None:
+        from wattbox_local.protocol import encode_auto_reboot_timeout_set
+
+        assert encode_auto_reboot_timeout_set(30, 3, 5, 0) == "!AutoRebootTimeoutSet=30,3,5,0"
+
+    def test_out_of_range(self) -> None:
+        from wattbox_local.protocol import encode_auto_reboot_timeout_set
+
+        with pytest.raises(ValueError):
+            encode_auto_reboot_timeout_set(0, 1, 1, 0)  # timeout < 1
+        with pytest.raises(ValueError):
+            encode_auto_reboot_timeout_set(30, 11, 1, 0)  # count > 10
+        with pytest.raises(ValueError):
+            encode_auto_reboot_timeout_set(30, 3, 31, 0)  # ping_delay > 30
+        with pytest.raises(ValueError):
+            encode_auto_reboot_timeout_set(30, 3, 5, -1)
+        with pytest.raises(ValueError):
+            encode_auto_reboot_timeout_set(30, 3, 5, 11)
+
+
+class TestEncodeHostAdd:
+    def test_basic(self) -> None:
+        from wattbox_local.protocol import encode_host_add
+
+        assert encode_host_add("Modem", "8.8.8.8", [1, 2]) == "!HostAdd=Modem,8.8.8.8,{1,2}"
+
+    def test_empty_outlets_rejected(self) -> None:
+        from wattbox_local.protocol import encode_host_add
+
+        with pytest.raises(ValueError):
+            encode_host_add("x", "8.8.8.8", [])
+
+    def test_bad_chars_rejected(self) -> None:
+        from wattbox_local.protocol import encode_host_add
+
+        with pytest.raises(ValueError):
+            encode_host_add("a,b", "8.8.8.8", [1])
+        with pytest.raises(ValueError):
+            encode_host_add("ok", "8.8.{8}.8", [1])
+
+
+class TestEncodeScheduleAdd:
+    def test_recurring_mwf(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        result = encode_schedule_add(
+            "Nightly",
+            [1, 2, 3],
+            1,  # ON
+            days=(False, True, False, True, False, True, False),  # M W F
+            time="03:30",
+        )
+        assert result == "!ScheduleAdd={Nightly},{1,2,3},{1},{1},{0,1,0,1,0,1,0},{03:30}"
+
+    def test_once_dated(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        result = encode_schedule_add(
+            "Boxing day",
+            [1],
+            2,  # RESET
+            date="2026/12/26",
+            time="04:00",
+        )
+        assert result == "!ScheduleAdd={Boxing day},{1},{2},{0},{2026/12/26},{04:00}"
+
+    def test_both_days_and_date_rejected(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        with pytest.raises(ValueError):
+            encode_schedule_add(
+                "X",
+                [1],
+                0,
+                days=(True, False, False, False, False, False, False),
+                date="2026/01/01",
+                time="00:00",
+            )
+
+    def test_neither_days_nor_date_rejected(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        with pytest.raises(ValueError):
+            encode_schedule_add("X", [1], 0, time="00:00")
+
+    def test_bad_time_rejected(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        for bad in ("25:00", "9:30", "12:60", "noon"):
+            with pytest.raises(ValueError):
+                encode_schedule_add("X", [1], 0, days=(True,) * 7, time=bad)
+
+    def test_bad_date_rejected(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        for bad in ("2026-01-01", "2026/13/01", "2026/01/32", "26/01/01"):
+            with pytest.raises(ValueError):
+                encode_schedule_add("X", [1], 0, date=bad, time="00:00")
+
+    def test_invalid_action_rejected(self) -> None:
+        from wattbox_local.protocol import encode_schedule_add
+
+        with pytest.raises(ValueError):
+            encode_schedule_add("X", [1], 99, days=(True,) * 7, time="00:00")
+
+
+class TestParsePowerOnDelays:
+    def test_wb800_live(self) -> None:
+        from wattbox_local.protocol import parse_power_on_delays
+
+        # Captured live from 10.10.10.156.
+        assert parse_power_on_delays("11,4,10,31,5,12,2,7,8,9,30,6") == [
+            11,
+            4,
+            10,
+            31,
+            5,
+            12,
+            2,
+            7,
+            8,
+            9,
+            30,
+            6,
+        ]
+
+    def test_empty_is_empty_list(self) -> None:
+        from wattbox_local.protocol import parse_power_on_delays
+
+        assert parse_power_on_delays("") == []
+
+    def test_bad_numeric_raises(self) -> None:
+        from wattbox_local.protocol import parse_power_on_delays
+
+        with pytest.raises(WattboxProtocolError):
+            parse_power_on_delays("11,X,10")
+
+
 # --- async push handling ------------------------------------------------
 
 

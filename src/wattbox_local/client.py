@@ -55,6 +55,7 @@ from .protocol import (
     CMD_MUTE,
     CMD_OUTLET_COUNT,
     CMD_OUTLET_NAME,
+    CMD_OUTLET_POWER_ON_DELAY,
     CMD_OUTLET_POWER_STATUS,
     CMD_OUTLET_STATUS,
     CMD_POWER_STATUS,
@@ -68,13 +69,22 @@ from .protocol import (
     OUTLET_RESET,
     OUTLET_TOGGLE,
     encode_auto_reboot,
+    encode_auto_reboot_timeout_set,
+    encode_host_add,
+    encode_outlet_mode_set,
+    encode_outlet_name_set,
+    encode_outlet_name_set_all,
+    encode_outlet_power_on_delay_set,
+    encode_outlet_reboot_set,
     encode_outlet_set,
+    encode_schedule_add,
     expect_value,
     parse_auto_reboot,
     parse_int,
     parse_outlet_names,
     parse_outlet_power_status,
     parse_outlet_status,
+    parse_power_on_delays,
     parse_power_status,
     parse_ups_connection,
     parse_ups_status,
@@ -238,6 +248,73 @@ class WattboxClient:
 
     async def set_auto_reboot(self, enabled: bool) -> None:
         await self._send_set(encode_auto_reboot(enabled))
+
+    async def set_outlet_name(self, index: int, name: str) -> None:
+        """Rename a single outlet."""
+        await self._send_set(encode_outlet_name_set(index, name))
+
+    async def set_all_outlet_names(self, names: list[str]) -> None:
+        """Rename every outlet in one shot. ``names`` must be ordered from outlet 1."""
+        await self._send_set(encode_outlet_name_set_all(names))
+
+    async def get_outlet_power_on_delays(self) -> list[int]:
+        """Read per-outlet power-on delay in seconds (one entry per outlet)."""
+        return parse_power_on_delays(
+            expect_value(CMD_OUTLET_POWER_ON_DELAY, await self._send(CMD_OUTLET_POWER_ON_DELAY))
+        )
+
+    async def set_outlet_power_on_delay(self, index: int, seconds: int) -> None:
+        """Set the boot delay for one outlet. ``seconds`` in [1, 600]."""
+        await self._send_set(encode_outlet_power_on_delay_set(index, seconds))
+
+    async def set_outlet_mode(self, index: int, mode: int) -> None:
+        """Set an outlet's operating mode.
+
+        ``mode`` per vendor PDF: 0=Enabled, 1=Disabled, 2=Reset-Only.
+        Use :data:`wattbox_local.protocol.OUTLET_MODE_*` constants.
+        """
+        await self._send_set(encode_outlet_mode_set(index, mode))
+
+    async def set_outlet_reboot_ops(self, ops: list[int]) -> None:
+        """Set per-outlet host-reboot operation. One OP per outlet.
+
+        OP per vendor PDF: 0=Or (any host times out), 1=And (all hosts
+        time out). The list length should equal the device's outlet
+        count — the caller is responsible for that.
+        """
+        await self._send_set(encode_outlet_reboot_set(ops))
+
+    async def set_auto_reboot_timeout(
+        self, timeout_s: int, count: int, ping_delay_min: int, reboot_attempts: int
+    ) -> None:
+        """Tune the auto-reboot logic. See encoder for bounds."""
+        await self._send_set(
+            encode_auto_reboot_timeout_set(timeout_s, count, ping_delay_min, reboot_attempts)
+        )
+
+    async def add_host(self, name: str, ip: str, outlets: list[int]) -> None:
+        """Add a ping-monitored host. ``outlets`` are tied to its reboot rule."""
+        await self._send_set(encode_host_add(name, ip, outlets))
+
+    async def add_schedule(
+        self,
+        name: str,
+        outlets: list[int],
+        action: int,
+        *,
+        days: tuple[bool, bool, bool, bool, bool, bool, bool] | None = None,
+        date: str | None = None,
+        time: str,
+    ) -> None:
+        """Add a scheduled outlet action.
+
+        Exactly one of ``days`` (recurring weekly mask, sun..sat) or
+        ``date`` (``yyyy/mm/dd`` for one-shot) must be provided. ``time``
+        is 24-hour ``hh:mm``.
+        """
+        await self._send_set(
+            encode_schedule_add(name, outlets, action, days=days, date=date, time=time)
+        )
 
     # ---- internals ---------------------------------------------------
 

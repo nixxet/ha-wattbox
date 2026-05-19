@@ -61,9 +61,20 @@ CMD_MUTE: Final[str] = "?Mute"
 CMD_SAFE_VOLTAGE: Final[str] = "?SafeVoltage"
 CMD_SCHEDULED_REBOOT: Final[str] = "?ScheduledReboot"
 
+# Optional query: per-outlet boot delay (CSV of seconds, one per outlet)
+CMD_OUTLET_POWER_ON_DELAY: Final[str] = "?OutletPowerOnDelay"
+
 # Set commands
 SET_OUTLET: Final[str] = "!OutletSet"
 SET_AUTO_REBOOT: Final[str] = "!AutoReboot"
+SET_OUTLET_NAME: Final[str] = "!OutletNameSet"
+SET_OUTLET_NAME_ALL: Final[str] = "!OutletNameSetAll"
+SET_OUTLET_POWER_ON_DELAY: Final[str] = "!OutletPowerOnDelaySet"
+SET_OUTLET_MODE: Final[str] = "!OutletModeSet"
+SET_OUTLET_REBOOT: Final[str] = "!OutletRebootSet"
+SET_AUTO_REBOOT_TIMEOUT: Final[str] = "!AutoRebootTimeoutSet"
+SET_SCHEDULE_ADD: Final[str] = "!ScheduleAdd"
+SET_HOST_ADD: Final[str] = "!HostAdd"
 
 # Outlet action verbs for !OutletSet=N,ACTION[,DELAY]
 OUTLET_ON: Final[str] = "ON"
@@ -74,6 +85,43 @@ OUTLET_RESET: Final[str] = "RESET"
 # RESET delay bounds per vendor PDF v2.4 (seconds).
 RESET_DELAY_MIN: Final[int] = 1
 RESET_DELAY_MAX: Final[int] = 600
+
+# Per-outlet power-on delay bounds (seconds), per vendor PDF v2.4.
+POWER_ON_DELAY_MIN: Final[int] = 1
+POWER_ON_DELAY_MAX: Final[int] = 600
+
+
+# Outlet mode values for !OutletModeSet (vendor PDF v2.4).
+OUTLET_MODE_ENABLED: Final[int] = 0
+OUTLET_MODE_DISABLED: Final[int] = 1
+OUTLET_MODE_RESET_ONLY: Final[int] = 2
+OUTLET_MODES: Final[frozenset[int]] = frozenset(
+    {OUTLET_MODE_ENABLED, OUTLET_MODE_DISABLED, OUTLET_MODE_RESET_ONLY}
+)
+
+# Per-outlet reboot operation for !OutletRebootSet (vendor PDF v2.4).
+OUTLET_REBOOT_OR: Final[int] = 0  # any selected hosts time-out
+OUTLET_REBOOT_AND: Final[int] = 1  # all selected hosts time out
+OUTLET_REBOOT_OPS: Final[frozenset[int]] = frozenset({OUTLET_REBOOT_OR, OUTLET_REBOOT_AND})
+
+# !AutoRebootTimeoutSet ranges (vendor PDF v2.4).
+AUTO_REBOOT_TIMEOUT_MIN_S: Final[int] = 1
+AUTO_REBOOT_TIMEOUT_MAX_S: Final[int] = 60
+AUTO_REBOOT_COUNT_MIN: Final[int] = 1
+AUTO_REBOOT_COUNT_MAX: Final[int] = 10
+AUTO_REBOOT_PING_DELAY_MIN_MIN: Final[int] = 1
+AUTO_REBOOT_PING_DELAY_MAX_MIN: Final[int] = 30
+AUTO_REBOOT_ATTEMPTS_MAX: Final[int] = 10  # 0 == unlimited
+
+# Schedule actions / frequencies (vendor PDF v2.4).
+SCHEDULE_ACTION_OFF: Final[int] = 0
+SCHEDULE_ACTION_ON: Final[int] = 1
+SCHEDULE_ACTION_RESET: Final[int] = 2
+SCHEDULE_ACTIONS: Final[frozenset[int]] = frozenset(
+    {SCHEDULE_ACTION_OFF, SCHEDULE_ACTION_ON, SCHEDULE_ACTION_RESET}
+)
+SCHEDULE_FREQ_ONCE: Final[int] = 0
+SCHEDULE_FREQ_RECURRING: Final[int] = 1
 
 
 # --- encoders -----------------------------------------------------------
@@ -109,6 +157,185 @@ def encode_outlet_set(index: int, action: str, *, delay: int | None = None) -> s
 
 def encode_auto_reboot(enabled: bool) -> str:
     return f"{SET_AUTO_REBOOT}={1 if enabled else 0}"
+
+
+def encode_outlet_name_set(index: int, name: str) -> str:
+    """Build ``!OutletNameSet=N,NAME``. Per PDF v2.4."""
+    if index < 1:
+        raise ValueError(f"outlet index must be >= 1, got {index}")
+    if not name:
+        raise ValueError("name must be non-empty")
+    if "\n" in name or "\r" in name:
+        raise ValueError("name must not contain newlines")
+    # The PDF doesn't document escape rules; safest to forbid the comma
+    # that delimits the wire format and the brace that delimits ?OutletName.
+    if any(c in name for c in ",{}"):
+        raise ValueError("name must not contain ',', '{', or '}'")
+    return f"{SET_OUTLET_NAME}={index},{name}"
+
+
+def encode_outlet_name_set_all(names: list[str]) -> str:
+    """Build ``!OutletNameSetAll={N1},{N2},...`` (brackets required, vendor PDF).
+
+    The list must contain exactly one name per outlet, in outlet order
+    starting from outlet 1.
+    """
+    if not names:
+        raise ValueError("at least one name required")
+    for n in names:
+        if not n:
+            raise ValueError("names must be non-empty")
+        if any(c in n for c in "{}\r\n"):
+            raise ValueError("names must not contain '{', '}', or newlines")
+    return f"{SET_OUTLET_NAME_ALL}=" + ",".join(f"{{{n}}}" for n in names)
+
+
+def encode_outlet_power_on_delay_set(index: int, seconds: int) -> str:
+    """Build ``!OutletPowerOnDelaySet=N,SECONDS``. SECONDS in [1,600]."""
+    if index < 1:
+        raise ValueError(f"outlet index must be >= 1, got {index}")
+    if not (POWER_ON_DELAY_MIN <= seconds <= POWER_ON_DELAY_MAX):
+        raise ValueError(
+            f"power-on delay must be in [{POWER_ON_DELAY_MIN}, {POWER_ON_DELAY_MAX}] "
+            f"seconds, got {seconds}"
+        )
+    return f"{SET_OUTLET_POWER_ON_DELAY}={index},{seconds}"
+
+
+def encode_outlet_mode_set(index: int, mode: int) -> str:
+    """Build ``!OutletModeSet=N,MODE``. MODE: 0=Enabled, 1=Disabled, 2=Reset-Only."""
+    if index < 1:
+        raise ValueError(f"outlet index must be >= 1, got {index}")
+    if mode not in OUTLET_MODES:
+        raise ValueError(f"mode must be one of {sorted(OUTLET_MODES)}, got {mode}")
+    return f"{SET_OUTLET_MODE}={index},{mode}"
+
+
+def encode_outlet_reboot_set(ops: list[int]) -> str:
+    """Build ``!OutletRebootSet=OP,OP,...`` — one OP per outlet on the device.
+
+    OP per vendor PDF: 0 = Or (any selected hosts time-out), 1 = And (all
+    selected hosts time out). The list length must equal the device's
+    outlet count; the caller is responsible for matching that.
+    """
+    if not ops:
+        raise ValueError("at least one OP required")
+    for op in ops:
+        if op not in OUTLET_REBOOT_OPS:
+            raise ValueError(f"each OP must be one of {sorted(OUTLET_REBOOT_OPS)}, got {op}")
+    return f"{SET_OUTLET_REBOOT}=" + ",".join(str(op) for op in ops)
+
+
+def encode_auto_reboot_timeout_set(
+    timeout_s: int, count: int, ping_delay_min: int, reboot_attempts: int
+) -> str:
+    """Build ``!AutoRebootTimeoutSet=TIMEOUT,COUNT,PING_DELAY,REBOOT_ATTEMPTS``.
+
+    Bounds per vendor PDF v2.4:
+
+    * ``timeout_s``     [1, 60] seconds — host response timeout.
+    * ``count``         [1, 10]         — consecutive timeouts before reboot.
+    * ``ping_delay_min`` [1, 30] minutes — wait between auto-reboot retries.
+    * ``reboot_attempts`` 0 = unlimited, otherwise [1, 10].
+    """
+    if not (AUTO_REBOOT_TIMEOUT_MIN_S <= timeout_s <= AUTO_REBOOT_TIMEOUT_MAX_S):
+        raise ValueError(
+            f"timeout must be [{AUTO_REBOOT_TIMEOUT_MIN_S},"
+            f"{AUTO_REBOOT_TIMEOUT_MAX_S}], got {timeout_s}"
+        )
+    if not (AUTO_REBOOT_COUNT_MIN <= count <= AUTO_REBOOT_COUNT_MAX):
+        raise ValueError(
+            f"count must be [{AUTO_REBOOT_COUNT_MIN},{AUTO_REBOOT_COUNT_MAX}], got {count}"
+        )
+    if not (AUTO_REBOOT_PING_DELAY_MIN_MIN <= ping_delay_min <= AUTO_REBOOT_PING_DELAY_MAX_MIN):
+        raise ValueError(
+            f"ping_delay_min must be [{AUTO_REBOOT_PING_DELAY_MIN_MIN},"
+            f"{AUTO_REBOOT_PING_DELAY_MAX_MIN}], got {ping_delay_min}"
+        )
+    if reboot_attempts < 0 or reboot_attempts > AUTO_REBOOT_ATTEMPTS_MAX:
+        raise ValueError(
+            f"reboot_attempts must be 0 (unlimited) or [1, {AUTO_REBOOT_ATTEMPTS_MAX}], "
+            f"got {reboot_attempts}"
+        )
+    return f"{SET_AUTO_REBOOT_TIMEOUT}={timeout_s},{count},{ping_delay_min},{reboot_attempts}"
+
+
+def encode_host_add(name: str, ip: str, outlets: list[int]) -> str:
+    """Build ``!HostAdd=NAME,IP,{N,N,...}`` for ping-host monitoring.
+
+    Per vendor PDF: brackets required around the outlets array. The
+    integration must already have called ``!AutoReboot=1`` for hosts to
+    actually trigger reboots.
+    """
+    if not name:
+        raise ValueError("name must be non-empty")
+    if not ip:
+        raise ValueError("ip must be non-empty")
+    if any(c in name for c in ",{}\r\n") or any(c in ip for c in ",{}\r\n"):
+        raise ValueError("name and ip must not contain ',', '{', '}', or newlines")
+    if not outlets:
+        raise ValueError("at least one outlet required")
+    for o in outlets:
+        if o < 1:
+            raise ValueError(f"outlet indices must be >= 1, got {o}")
+    outlet_csv = ",".join(str(o) for o in outlets)
+    return f"{SET_HOST_ADD}={name},{ip},{{{outlet_csv}}}"
+
+
+def encode_schedule_add(
+    name: str,
+    outlets: list[int],
+    action: int,
+    *,
+    days: tuple[bool, bool, bool, bool, bool, bool, bool] | None = None,
+    date: str | None = None,
+    time: str,
+) -> str:
+    """Build ``!ScheduleAdd={NAME},{OUTLETS},{ACTION},{FREQ},{DAYS|DATE},{TIME}``.
+
+    Per vendor PDF v2.4. Exactly one of ``days`` or ``date`` must be
+    provided — they determine FREQ (1=Recurring with day mask, 0=Once
+    with date).
+
+    * ``days`` is a 7-tuple ``(sun, mon, tue, wed, thu, fri, sat)``.
+    * ``date`` is ``yyyy/mm/dd`` for a one-shot schedule.
+    * ``time`` is 24-hour ``hh:mm`` (e.g. ``13:30`` = 1:30pm).
+    """
+    if not name:
+        raise ValueError("name must be non-empty")
+    if any(c in name for c in ",{}\r\n"):
+        raise ValueError("name must not contain ',', '{', '}', or newlines")
+    if not outlets:
+        raise ValueError("at least one outlet required")
+    for o in outlets:
+        if o < 1:
+            raise ValueError(f"outlet indices must be >= 1, got {o}")
+    if action not in SCHEDULE_ACTIONS:
+        raise ValueError(f"action must be one of {sorted(SCHEDULE_ACTIONS)}, got {action}")
+    if (days is None) == (date is None):
+        raise ValueError("exactly one of `days` (recurring) or `date` (once) must be set")
+    if not _TIME_RE.fullmatch(time):
+        raise ValueError(f"time must match 'hh:mm' 24-hour format, got {time!r}")
+
+    if days is not None:
+        freq = SCHEDULE_FREQ_RECURRING
+        day_csv = ",".join("1" if d else "0" for d in days)
+        when = "{" + day_csv + "}"
+    else:
+        assert date is not None
+        if not _DATE_RE.fullmatch(date):
+            raise ValueError(f"date must match 'yyyy/mm/dd', got {date!r}")
+        freq = SCHEDULE_FREQ_ONCE
+        when = "{" + date + "}"
+
+    outlet_csv = ",".join(str(o) for o in outlets)
+    return (
+        f"{SET_SCHEDULE_ADD}={{{name}}},{{{outlet_csv}}},{{{action}}},{{{freq}}},{when},{{{time}}}"
+    )
+
+
+_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+_DATE_RE = re.compile(r"^\d{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])$")
 
 
 # --- response splitter --------------------------------------------------
@@ -355,6 +582,20 @@ def parse_ups_connection(value: str) -> bool:
     if stripped not in ("0", "1"):
         raise WattboxProtocolError(f"bad ?UPSConnection value: {value!r}")
     return stripped == "1"
+
+
+def parse_power_on_delays(value: str) -> list[int]:
+    """Parse ``?OutletPowerOnDelay`` value -> per-outlet boot delays (sec).
+
+    Wire format observed live: CSV of integer seconds, one per outlet
+    (e.g. ``11,4,10,31,5,12,2,7,8,9,30,6`` for a 12-outlet device).
+    """
+    if not value:
+        return []
+    try:
+        return [int(p.strip()) for p in value.split(",")]
+    except ValueError as e:
+        raise WattboxProtocolError(f"bad numeric in ?OutletPowerOnDelay: {value!r}") from e
 
 
 def parse_auto_reboot(value: str) -> bool:
