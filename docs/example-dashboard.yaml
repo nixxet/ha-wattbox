@@ -1,32 +1,35 @@
-# Example Lovelace dashboard for ha-wattbox.
+# Example Lovelace dashboard for ha-wattbox — wide horizontal layout.
 #
-# Drop this into a new dashboard, or replace a view's YAML via:
-#   Settings -> Dashboards -> + Add Dashboard -> New dashboard from scratch
+# Designed to read top-to-bottom in horizontal strips that fill the full
+# screen width on desktop. On mobile the rows naturally stack.
+#
+# Drop into a new dashboard via:
+#   Settings -> Dashboards -> + Add Dashboard -> New from scratch
 #   -> open it -> top-right Edit -> 3-dot menu -> Raw configuration editor
 #
-# Entity-id assumptions (HA auto-generates these from device hostname +
-# outlet name). Adjust if your hostnames or outlet names differ — HA's
-# entity picker shows the exact ids.
+# Entity-id assumptions (HA auto-generates from device hostname + outlet
+# name; adjust if yours differ — HA's entity picker shows the exact ids):
 #
 #   WB-800 hostname "WattBox":
 #     switch.wattbox_<outlet_name>
 #     sensor.wattbox_power / _current / _voltage
-#     sensor.wattbox_<outlet_name>_power / _current / _voltage
+#     sensor.wattbox_<outlet_name>_power
 #     sensor.wattbox_ups_battery / _load / _runtime
 #     binary_sensor.wattbox_api_locked_out
-#     binary_sensor.wattbox_ups_connected / _mains_power / _ups_alarm
+#     binary_sensor.wattbox_mains_power / _audible_alarm_armed / _ups_connected
 #
-#   WB-250 hostname "WattBoxGarage":
-#     switch.wattboxgarage_outlet_1 / _2
-#     binary_sensor.wattboxgarage_api_locked_out
+#   WB-250 hostnames "WattBoxGarage" and similar.
 
 title: WattBoxes
 views:
+
   - title: Racks
+    path: racks
     icon: mdi:power-plug
+    panel: false
     cards:
 
-      # ---- Status strip (across all three boxes) ---------------------
+      # ---------- Row 1: cross-device status strip ----------
       - type: horizontal-stack
         cards:
           - type: tile
@@ -39,143 +42,151 @@ views:
             name: Garage API
             icon: mdi:lock-alert
             color: red
-          # If your second WB-250 has hostname "WattBox", api_locked will
-          # collide with the 800. Rename one in the device registry first.
+          # Rename the .152 device in HA -> Devices to avoid colliding
+          # with the 800's "wattbox" prefix; example below assumes "spare".
+          - type: tile
+            entity: binary_sensor.spare_api_locked_out
+            name: Spare API
+            icon: mdi:lock-alert
+            color: red
+          - type: tile
+            entity: binary_sensor.wattbox_audible_alarm_armed
+            name: UPS alarm armed
+            icon: mdi:bell-ring
+            color: amber
 
-      # ---- WB-800 + UPS ---------------------------------------------
-      - type: vertical-stack
+      # ---------- Row 2: UPS + whole-device power (WB-800) ----------
+      - type: horizontal-stack
         cards:
-          - type: markdown
-            content: "## Media Rack · WB-800-IPVM-12"
+          - type: gauge
+            entity: sensor.wattbox_ups_battery
+            name: UPS battery
+            min: 0
+            max: 100
+            unit: "%"
+            severity: { red: 0, yellow: 30, green: 60 }
+            needle: true
+          - type: gauge
+            entity: sensor.wattbox_ups_load
+            name: UPS load
+            min: 0
+            max: 100
+            unit: "%"
+            severity: { green: 0, yellow: 60, red: 85 }
+            needle: true
+          - type: tile
+            entity: sensor.wattbox_ups_runtime
+            name: Runtime
+            icon: mdi:timer-sand
+            color: cyan
+          - type: tile
+            entity: binary_sensor.wattbox_mains_power
+            name: Mains
+            icon: mdi:power-plug
+            color: green
+          - type: tile
+            entity: sensor.wattbox_power
+            name: Total draw
+            icon: mdi:flash
+            color: amber
+          - type: tile
+            entity: sensor.wattbox_voltage
+            name: Voltage
+            icon: mdi:sine-wave
+          - type: tile
+            entity: sensor.wattbox_current
+            name: Current
+            icon: mdi:current-ac
 
-          # UPS strip
-          - type: horizontal-stack
-            cards:
-              - type: gauge
-                entity: sensor.wattbox_ups_battery
-                name: UPS battery
-                min: 0
-                max: 100
-                unit: "%"
-                severity: { red: 0, yellow: 30, green: 60 }
-              - type: gauge
-                entity: sensor.wattbox_ups_load
-                name: UPS load
-                min: 0
-                max: 100
-                unit: "%"
-                severity: { green: 0, yellow: 60, red: 85 }
-              - type: tile
-                entity: sensor.wattbox_ups_runtime
-                name: Runtime
-                icon: mdi:timer-outline
-              - type: tile
-                entity: binary_sensor.wattbox_mains_power
-                name: Mains
-                icon: mdi:power-plug
-                color: green
-              - type: tile
-                entity: binary_sensor.wattbox_audible_alarm_armed
-                name: Alarm armed
-                icon: mdi:bell-ring
-                color: amber
+      # ---------- Row 3: 12 outlet switches in one wide grid ----------
+      - type: grid
+        title: WB-800 outlets
+        columns: 4
+        square: false
+        cards:
+          - { type: tile, entity: switch.wattbox_dish_hopper,      name: Dish Hopper,     features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_ea3,              name: EA3,             features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_denon_rcv,        name: Denon Rcv,       features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_cheap_led_strip,  name: LED Strip,       features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_outlet_5,         name: Outlet 5,        features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_nvidia_shield,    name: Nvidia Shield,   features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_wtc_ups,          name: WTC UPS,         features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_dream_machine,    name: Dream Machine,   features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_vivint_camera,    name: Vivint Camera,   features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_hikvision_nvr,    name: Hikvision NVR,   features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_ps5,              name: PS5,             features: { type: "toggle" } }
+          - { type: tile, entity: switch.wattbox_unifi_24_switch,  name: Unifi 24 Switch, features: { type: "toggle" } }
 
-          # Whole-device power
-          - type: horizontal-stack
-            cards:
-              - type: tile
-                entity: sensor.wattbox_power
-                name: Total draw
-                icon: mdi:flash
-              - type: tile
-                entity: sensor.wattbox_voltage
-                name: Mains voltage
-                icon: mdi:sine-wave
-              - type: tile
-                entity: sensor.wattbox_current
-                name: Current
-                icon: mdi:current-ac
+      # ---------- Row 4: per-outlet wattage strip (same order as above) ----------
+      - type: grid
+        title: WB-800 per-outlet power
+        columns: 6
+        square: false
+        cards:
+          - { type: tile, entity: sensor.wattbox_dish_hopper_power,     name: Dish Hopper,     vertical: true }
+          - { type: tile, entity: sensor.wattbox_ea3_power,             name: EA3,             vertical: true }
+          - { type: tile, entity: sensor.wattbox_denon_rcv_power,       name: Denon Rcv,       vertical: true }
+          - { type: tile, entity: sensor.wattbox_cheap_led_strip_power, name: LED Strip,       vertical: true }
+          - { type: tile, entity: sensor.wattbox_outlet_5_power,        name: Outlet 5,        vertical: true }
+          - { type: tile, entity: sensor.wattbox_nvidia_shield_power,   name: Nvidia Shield,   vertical: true }
+          - { type: tile, entity: sensor.wattbox_wtc_ups_power,         name: WTC UPS,         vertical: true }
+          - { type: tile, entity: sensor.wattbox_dream_machine_power,   name: Dream Machine,   vertical: true }
+          - { type: tile, entity: sensor.wattbox_vivint_camera_power,   name: Vivint Camera,   vertical: true }
+          - { type: tile, entity: sensor.wattbox_hikvision_nvr_power,   name: Hikvision NVR,   vertical: true }
+          - { type: tile, entity: sensor.wattbox_ps5_power,             name: PS5,             vertical: true }
+          - { type: tile, entity: sensor.wattbox_unifi_24_switch_power, name: Unifi 24 Switch, vertical: true }
 
-          # Outlets — grid of switches with per-outlet power below each
-          - type: grid
-            columns: 3
-            square: false
-            cards:
-              - type: tile
-                entity: switch.wattbox_dish_hopper
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_ea3
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_denon_rcv
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_cheap_led_strip
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_outlet_5
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_nvidia_shield
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_wtc_ups
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_dream_machine
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_vivint_camera
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_hikvision_nvr
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_ps5
-                features: { type: "toggle" }
-              - type: tile
-                entity: switch.wattbox_unifi_24_switch
-                features: { type: "toggle" }
+      # ---------- Row 5: history graph ----------
+      - type: history-graph
+        title: Last 24h — top draws
+        hours_to_show: 24
+        entities:
+          - sensor.wattbox_power
+          - sensor.wattbox_denon_rcv_power
+          - sensor.wattbox_nvidia_shield_power
+          - sensor.wattbox_unifi_24_switch_power
+          - sensor.wattbox_hikvision_nvr_power
+          - sensor.wattbox_ps5_power
 
-          # Power history graph — top consumers
-          - type: history-graph
-            title: Last 24h power draw
-            hours_to_show: 24
+      # ---------- Row 6: WB-250s side by side ----------
+      - type: horizontal-stack
+        cards:
+          - type: entities
+            title: Garage · WB-250-IPW-2
+            show_header_toggle: false
             entities:
-              - sensor.wattbox_power
-              - sensor.wattbox_denon_rcv_power
-              - sensor.wattbox_nvidia_shield_power
-              - sensor.wattbox_unifi_24_switch_power
-              - sensor.wattbox_hikvision_nvr_power
+              - entity: switch.wattboxgarage_outlet_1
+              - entity: switch.wattboxgarage_outlet_2
+          - type: entities
+            title: Spare · WB-250-IPW-2
+            show_header_toggle: false
+            entities:
+              - entity: switch.spare_not_used
+              - entity: switch.spare_sony_tv
 
-      # ---- WB-250 Garage --------------------------------------------
-      - type: entities
-        title: Garage · WB-250-IPW-2
-        show_header_toggle: false
-        entities:
-          - entity: switch.wattboxgarage_outlet_1
-          - entity: switch.wattboxgarage_outlet_2
-          - type: divider
-          - entity: binary_sensor.wattboxgarage_api_locked_out
-            name: API lockout
-
-      # ---- WB-250 #2 (.152) -----------------------------------------
-      # Adjust the entity_id prefix to match this box's hostname.
-      - type: entities
-        title: Spare · WB-250-IPW-2
-        show_header_toggle: false
-        entities:
-          - entity: switch.wattbox_not_used
-          - entity: switch.wattbox_sony_tv
-
-      # ---- Quick actions ---------------------------------------------
-      - type: entities
-        title: Quick actions
-        entities:
-          - entity: button.wattbox_reset_all_outlets
-            name: Reset ALL on WB-800 (use sparingly)
-          - entity: button.wattbox_reset_ps5
+      # ---------- Row 7: quick actions ----------
+      - type: horizontal-stack
+        cards:
+          - type: button
+            entity: button.wattbox_reset_ps5
             name: Reset PS5
-          - entity: button.wattbox_reset_dream_machine
+            icon: mdi:restart
+          - type: button
+            entity: button.wattbox_reset_dream_machine
             name: Reset Dream Machine
+            icon: mdi:restart
+          - type: button
+            entity: button.wattbox_reset_hikvision_nvr
+            name: Reset NVR
+            icon: mdi:restart
+          - type: button
+            entity: button.wattbox_reset_all_outlets
+            name: Reset ALL on WB-800
+            icon: mdi:restart-alert
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.wattbox_reset_all_outlets
+              confirmation:
+                text: This will power-cycle every outlet on the WB-800. Continue?
