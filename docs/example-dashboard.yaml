@@ -1,87 +1,136 @@
 # Example Lovelace dashboard for ha-wattbox.
 #
-# Professional, full-width layout using the modern `sections` view. Each
-# section is a self-contained, titled card group with breathing room between
-# them — no stacked-box wall. The WB-800 sprawls across the full width;
-# WB-250s sit side-by-side underneath.
+# Modern `sections` view, 4-column grid with dense placement. The Rack WattBox
+# (WB-800) takes the full-width strips; Fleet status (1) + Quick actions (3)
+# share the top row; Garage TV (1) + Family Room TV (2) share the bottom row.
 #
 # Drop into a new dashboard via:
 #   Settings -> Dashboards -> + Add Dashboard -> New from scratch
 #   -> open it -> top-right Edit -> 3-dot menu -> Raw configuration editor
 #
-# Entity-id assumptions (HA auto-generates from device hostname + outlet
-# name; adjust if yours differ — HA's entity picker shows the exact ids):
+# ----------------------------------------------------------------------------
+# Layout notes
+# ----------------------------------------------------------------------------
+# * `max_columns: 4` + `dense_section_placement: true` lets sections re-flow
+#   into available row space instead of leaving gutters.
+# * The Rack outlets / per-outlet draw / history grids carry an inner
+#   `grid_options: columns: 24, rows: auto`. That forces the inner grid to
+#   span the section's full width regardless of viewport — without it the
+#   inner grid will collapse to a narrower default and look ragged.
+# * Asymmetric col_spans (1+3, 1+2) give the layout visual rhythm rather than
+#   uniform halves; pair the smaller half with the denser content.
 #
-#   WB-800 hostname "WattBox":
-#     switch.wattbox_<outlet_name>
-#     sensor.wattbox_power / _current / _voltage
-#     sensor.wattbox_<outlet_name>_power
-#     sensor.wattbox_ups_battery / _load / _runtime
-#     binary_sensor.wattbox_api_locked_out
-#     binary_sensor.wattbox_mains_power / _audible_alarm_armed / _ups_connected
+# ----------------------------------------------------------------------------
+# Entity-id reality check
+# ----------------------------------------------------------------------------
+# Entity IDs in HA are STICKY to the device's *original* hostname at
+# registration. Renaming a device in Settings -> Devices changes only the
+# friendly name; entity_ids do not move. On this rack three devices all
+# registered as variants of "WattBox":
 #
-#   WB-250 hostnames "WattBoxGarage" and (renamed) "Spare".
+#   Rack WattBox          (WB-800, 10.10.10.156)  -> entity prefix: wattbox_*
+#   Family Room WattBox   (WB-250, 10.10.10.152)  -> *collided* into wattbox_*
+#                                                    Its API-lockout / reset-all
+#                                                    got "_2" suffixes; its two
+#                                                    switches kept their outlet
+#                                                    names (wattbox_not_used,
+#                                                    wattbox_sony_tv).
+#   Garage TV WattBox     (WB-250, 10.10.10.150)  -> entity prefix: wattboxgarage_*
+#
+# To clean this up permanently: open each entity in Settings -> Devices &
+# Services -> [device] -> Entities -> click entity -> gear icon -> set a new
+# entity_id (e.g. `switch.rack_dish_hopper`). Then update this YAML to match.
 
 title: WattBoxes
 views:
-
   - title: Racks
     path: racks
     icon: mdi:power-plug
     type: sections
     max_columns: 4
-    dense_section_placement: false
+    dense_section_placement: true
     sections:
-
-      # ============================================================
-      # SECTION 1 — Fleet status (full width across the top)
-      # ============================================================
       - type: grid
-        column_span: 4
+        column_span: 1
         cards:
           - type: heading
             heading: Fleet status
             heading_style: title
             icon: mdi:server-network
-
           - type: grid
-            columns: 4
+            columns: 2
             square: false
             cards:
               - type: tile
                 entity: binary_sensor.wattbox_api_locked_out
-                name: WB-800 API
+                name: Rack API
                 icon: mdi:lock-alert
                 color: red
               - type: tile
                 entity: binary_sensor.wattboxgarage_api_locked_out
-                name: Garage API
-                icon: mdi:lock-alert
-                color: red
-              # Rename the .152 device in HA -> Devices to "Spare" to avoid
-              # colliding with the 800's "wattbox" entity prefix.
-              - type: tile
-                entity: binary_sensor.spare_api_locked_out
-                name: Spare API
+                name: Garage TV API
                 icon: mdi:lock-alert
                 color: red
               - type: tile
-                entity: binary_sensor.wattbox_audible_alarm_armed
+                entity: binary_sensor.wattbox_api_locked_out_2
+                name: Family Room TV API
+                icon: mdi:lock-alert
+                color: red
+              - type: tile
+                entity: binary_sensor.wattbox_ups_alarm
                 name: UPS alarm armed
                 icon: mdi:bell-ring
                 color: amber
-
-      # ============================================================
-      # SECTION 2 — WB-800 power & UPS (full width)
-      # ============================================================
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Quick actions
+            heading_style: title
+            icon: mdi:restart
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: tile
+                entity: button.wattbox_reset_ps5
+                name: Reset PS5
+                icon: mdi:restart
+                tap_action:
+                  action: toggle
+              - type: tile
+                entity: button.wattbox_reset_dream_machine
+                name: Reset Dream Machine
+                icon: mdi:restart
+                tap_action:
+                  action: toggle
+              - type: tile
+                entity: button.wattbox_reset_hikvision_nvr
+                name: Reset NVR
+                icon: mdi:restart
+                tap_action:
+                  action: toggle
+              - type: tile
+                entity: button.wattbox_reset_all_outlets
+                name: Reset ALL outlets
+                icon: mdi:restart-alert
+                color: red
+                tap_action:
+                  action: call-service
+                  service: button.press
+                  target:
+                    entity_id: button.wattbox_reset_all_outlets
+                  confirmation:
+                    text: >-
+                      This will power-cycle every outlet on the Rack WattBox.
+                      Continue?
       - type: grid
         column_span: 4
         cards:
           - type: heading
-            heading: WB-800 · power & UPS
+            heading: Rack WattBox · power & UPS
             heading_style: title
             icon: mdi:flash
-
           - type: grid
             columns: 3
             square: false
@@ -91,7 +140,7 @@ views:
                 name: UPS battery
                 min: 0
                 max: 100
-                unit: "%"
+                unit: '%'
                 needle: true
                 severity:
                   red: 0
@@ -102,7 +151,7 @@ views:
                 name: UPS load
                 min: 0
                 max: 100
-                unit: "%"
+                unit: '%'
                 needle: true
                 severity:
                   green: 0
@@ -110,7 +159,7 @@ views:
                   red: 85
               - type: gauge
                 entity: sensor.wattbox_power
-                name: Total draw
+                name: Power
                 min: 0
                 max: 1500
                 unit: W
@@ -119,7 +168,6 @@ views:
                   green: 0
                   yellow: 800
                   red: 1200
-
           - type: grid
             columns: 4
             square: false
@@ -143,20 +191,15 @@ views:
                 name: Current
                 icon: mdi:current-ac
                 color: amber
-
-      # ============================================================
-      # SECTION 3 — WB-800 outlets (full width, one wide grid)
-      # ============================================================
       - type: grid
         column_span: 4
         cards:
           - type: heading
-            heading: WB-800 · outlets
+            heading: Rack WattBox · outlets
             heading_style: title
             icon: mdi:power-socket-us
-
           - type: grid
-            columns: 4
+            columns: 6
             square: false
             cards:
               - type: tile
@@ -219,18 +262,16 @@ views:
                 name: Unifi 24 Switch
                 features:
                   - type: toggle
-
-      # ============================================================
-      # SECTION 4 — WB-800 per-outlet draw (full width)
-      # ============================================================
+            grid_options:
+              columns: 24
+              rows: auto
       - type: grid
         column_span: 4
         cards:
           - type: heading
-            heading: WB-800 · per-outlet draw
+            heading: Rack WattBox · per-outlet draw
             heading_style: title
             icon: mdi:chart-bar
-
           - type: grid
             columns: 6
             square: false
@@ -283,18 +324,16 @@ views:
                 entity: sensor.wattbox_unifi_24_switch_power
                 name: Unifi 24 Switch
                 vertical: true
-
-      # ============================================================
-      # SECTION 5 — 24h history (full width)
-      # ============================================================
+            grid_options:
+              columns: 24
+              rows: auto
       - type: grid
         column_span: 4
         cards:
           - type: heading
-            heading: WB-800 · last 24 hours
+            heading: Rack WattBox · last 24 hours
             heading_style: title
             icon: mdi:chart-line
-
           - type: history-graph
             hours_to_show: 24
             entities:
@@ -310,18 +349,16 @@ views:
                 name: NVR
               - entity: sensor.wattbox_ps5_power
                 name: PS5
-
-      # ============================================================
-      # SECTION 6 — Garage WB-250 (half width, left)
-      # ============================================================
+            grid_options:
+              columns: 24
+              rows: auto
       - type: grid
-        column_span: 2
+        column_span: 1
         cards:
           - type: heading
-            heading: Garage · WB-250-IPW-2
+            heading: Garage TV WattBox · WB-250-IPW-2
             heading_style: title
             icon: mdi:garage
-
           - type: grid
             columns: 2
             square: false
@@ -336,75 +373,24 @@ views:
                 name: Outlet 2
                 features:
                   - type: toggle
-
-      # ============================================================
-      # SECTION 7 — Spare WB-250 (half width, right)
-      # ============================================================
       - type: grid
         column_span: 2
         cards:
           - type: heading
-            heading: Spare · WB-250-IPW-2
+            heading: Family Room TV WattBox · WB-250-IPW-2
             heading_style: title
-            icon: mdi:server
-
+            icon: mdi:television
           - type: grid
             columns: 2
             square: false
             cards:
               - type: tile
-                entity: switch.spare_not_used
+                entity: switch.wattbox_not_used
                 name: Not Used
                 features:
                   - type: toggle
               - type: tile
-                entity: switch.spare_sony_tv
+                entity: switch.wattbox_sony_tv
                 name: Sony TV
                 features:
                   - type: toggle
-
-      # ============================================================
-      # SECTION 8 — Quick actions (full width, bottom)
-      # ============================================================
-      - type: grid
-        column_span: 4
-        cards:
-          - type: heading
-            heading: Quick actions
-            heading_style: title
-            icon: mdi:restart
-
-          - type: grid
-            columns: 4
-            square: false
-            cards:
-              - type: tile
-                entity: button.wattbox_reset_ps5
-                name: Reset PS5
-                icon: mdi:restart
-                tap_action:
-                  action: toggle
-              - type: tile
-                entity: button.wattbox_reset_dream_machine
-                name: Reset Dream Machine
-                icon: mdi:restart
-                tap_action:
-                  action: toggle
-              - type: tile
-                entity: button.wattbox_reset_hikvision_nvr
-                name: Reset NVR
-                icon: mdi:restart
-                tap_action:
-                  action: toggle
-              - type: tile
-                entity: button.wattbox_reset_all_outlets
-                name: Reset ALL outlets
-                icon: mdi:restart-alert
-                color: red
-                tap_action:
-                  action: call-service
-                  service: button.press
-                  target:
-                    entity_id: button.wattbox_reset_all_outlets
-                  confirmation:
-                    text: This will power-cycle every outlet on the WB-800. Continue?
