@@ -40,6 +40,16 @@
 # To clean this up permanently: open each entity in Settings -> Devices &
 # Services -> [device] -> Entities -> click entity -> gear icon -> set a new
 # entity_id (e.g. `switch.rack_dish_hopper`). Then update this YAML to match.
+#
+# ----------------------------------------------------------------------------
+# Tile label vs outlet name
+# ----------------------------------------------------------------------------
+# Each tile below carries a hardcoded `name:` — that label OVERRIDES whatever
+# the WattBox reports as the outlet name. If you call the
+# `wattbox.set_outlet_name` service to rename an outlet on the device, this
+# dashboard will still display the old hardcoded label until you either edit
+# the `name:` line here or delete it (delete = fall back to the entity's
+# friendly name, which will track future renames automatically).
 
 title: WattBoxes
 views:

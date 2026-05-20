@@ -362,7 +362,12 @@ class TestEncodeOutletNameSet:
     def test_basic(self) -> None:
         from wattbox_local.protocol import encode_outlet_name_set
 
-        assert encode_outlet_name_set(5, "Server") == "!OutletNameSet=5,Server"
+        assert encode_outlet_name_set(5, "Server") == "!OutletNameSet=5,{Server}"
+
+    def test_name_with_space_is_preserved_via_braces(self) -> None:
+        from wattbox_local.protocol import encode_outlet_name_set
+
+        assert encode_outlet_name_set(5, "Living Room") == "!OutletNameSet=5,{Living Room}"
 
     def test_rejects_bad_index(self) -> None:
         from wattbox_local.protocol import encode_outlet_name_set
@@ -370,10 +375,10 @@ class TestEncodeOutletNameSet:
         with pytest.raises(ValueError):
             encode_outlet_name_set(0, "x")
 
-    def test_rejects_comma_and_braces(self) -> None:
+    def test_rejects_braces_and_newlines(self) -> None:
         from wattbox_local.protocol import encode_outlet_name_set
 
-        for bad in (",", "{Foo", "Foo}", "a,b"):
+        for bad in ("{Foo", "Foo}", "with\nnewline", "with\rcarriage"):
             with pytest.raises(ValueError):
                 encode_outlet_name_set(1, bad)
 

@@ -160,18 +160,21 @@ def encode_auto_reboot(enabled: bool) -> str:
 
 
 def encode_outlet_name_set(index: int, name: str) -> str:
-    """Build ``!OutletNameSet=N,NAME``. Per PDF v2.4."""
+    """Build ``!OutletNameSet=N,{NAME}``.
+
+    The vendor PDF v2.4 example writes the name bare, but the device's
+    own ``?OutletName`` response and ``!OutletNameSetAll`` both use
+    ``{...}`` to delimit names — without braces, a name containing a
+    space gets truncated/stripped on the wire. Bracing mirrors the
+    response format and survives spaces intact.
+    """
     if index < 1:
         raise ValueError(f"outlet index must be >= 1, got {index}")
     if not name:
         raise ValueError("name must be non-empty")
-    if "\n" in name or "\r" in name:
-        raise ValueError("name must not contain newlines")
-    # The PDF doesn't document escape rules; safest to forbid the comma
-    # that delimits the wire format and the brace that delimits ?OutletName.
-    if any(c in name for c in ",{}"):
-        raise ValueError("name must not contain ',', '{', or '}'")
-    return f"{SET_OUTLET_NAME}={index},{name}"
+    if any(c in name for c in "{}\r\n"):
+        raise ValueError("name must not contain '{', '}', or newlines")
+    return f"{SET_OUTLET_NAME}={index},{{{name}}}"
 
 
 def encode_outlet_name_set_all(names: list[str]) -> str:
