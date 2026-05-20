@@ -250,7 +250,24 @@ class WattboxClient:
         await self._send_set(encode_auto_reboot(enabled))
 
     async def set_outlet_name(self, index: int, name: str) -> None:
-        """Rename a single outlet."""
+        """Rename a single outlet.
+
+        The single-form ``!OutletNameSet`` is space-hostile on real
+        WattBox firmware (truncates at the first whitespace, even when
+        the name is braced). For names containing a space we route
+        through ``!OutletNameSetAll``: read the current names, swap
+        index ``index``, write them all back. Names without spaces use
+        the cheaper single-form.
+        """
+        if " " in name or "\t" in name:
+            current = await self._read_outlet_names()
+            if not (1 <= index <= len(current)):
+                raise ValueError(
+                    f"outlet index {index} out of range for device with {len(current)} outlets"
+                )
+            current[index - 1] = name
+            await self.set_all_outlet_names(current)
+            return
         await self._send_set(encode_outlet_name_set(index, name))
 
     async def set_all_outlet_names(self, names: list[str]) -> None:
@@ -317,6 +334,15 @@ class WattboxClient:
         )
 
     # ---- internals ---------------------------------------------------
+
+    async def _read_outlet_names(self) -> list[str]:
+        """Read just the per-outlet name list. Used by the rename round-trip."""
+        info = await self.identify()
+        names = parse_outlet_names(expect_value(CMD_OUTLET_NAME, await self._send(CMD_OUTLET_NAME)))
+        # Pad to the device's outlet count if the firmware returned fewer.
+        while len(names) < info.outlet_count:
+            names.append(f"Outlet {len(names) + 1}")
+        return names
 
     async def _read_outlet_states(self) -> list[OutletState]:
         info = await self.identify()

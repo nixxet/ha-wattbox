@@ -160,21 +160,23 @@ def encode_auto_reboot(enabled: bool) -> str:
 
 
 def encode_outlet_name_set(index: int, name: str) -> str:
-    """Build ``!OutletNameSet=N,{NAME}``.
+    """Build ``!OutletNameSet=N,NAME`` per vendor PDF v2.4.
 
-    The vendor PDF v2.4 example writes the name bare, but the device's
-    own ``?OutletName`` response and ``!OutletNameSetAll`` both use
-    ``{...}`` to delimit names — without braces, a name containing a
-    space gets truncated/stripped on the wire. Bracing mirrors the
-    response format and survives spaces intact.
+    NOTE: the single-form setter is space-hostile on real firmware — the
+    device stores everything before the first whitespace and drops the
+    rest. Bracing the name (as ``!OutletNameSetAll`` requires) does not
+    help either; the device parses the brace as part of the literal name.
+    For any name containing a space, callers should use the bulk
+    ``set_all_outlet_names`` path instead — :meth:`WattboxClient.set_outlet_name`
+    routes spaced names through that path automatically.
     """
     if index < 1:
         raise ValueError(f"outlet index must be >= 1, got {index}")
     if not name:
         raise ValueError("name must be non-empty")
-    if any(c in name for c in "{}\r\n"):
-        raise ValueError("name must not contain '{', '}', or newlines")
-    return f"{SET_OUTLET_NAME}={index},{{{name}}}"
+    if any(c in name for c in ",{}\r\n"):
+        raise ValueError("name must not contain ',', '{', '}', or newlines")
+    return f"{SET_OUTLET_NAME}={index},{name}"
 
 
 def encode_outlet_name_set_all(names: list[str]) -> str:
