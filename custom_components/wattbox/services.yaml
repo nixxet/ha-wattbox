@@ -1,0 +1,168 @@
+set_outlet_name:
+  name: Set outlet name
+  description: >-
+    Rename a single outlet on the WattBox. The new name appears in the
+    device's own UI and (after the next poll) in Home Assistant.
+  fields:
+    device_id:
+      name: WattBox device
+      description: The WattBox device to target.
+      required: true
+      selector:
+        device:
+          integration: wattbox
+    outlet:
+      name: Outlet
+      description: Outlet number (1-based).
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 24
+          mode: box
+    name:
+      name: New name
+      description: New name for the outlet.
+      required: true
+      example: "Office TV"
+      selector:
+        text:
+
+set_outlet_power_on_delay:
+  name: Set outlet power-on delay
+  description: >-
+    Set the boot delay (1-600 seconds) applied to one outlet when the
+    WattBox powers up or runs a sequenced power-on.
+  fields:
+    device_id:
+      name: WattBox device
+      description: The WattBox device to target.
+      required: true
+      selector:
+        device:
+          integration: wattbox
+    outlet:
+      name: Outlet
+      description: Outlet number (1-based).
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 24
+          mode: box
+    seconds:
+      name: Delay (seconds)
+      description: 1-600 seconds.
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 600
+          mode: box
+
+add_schedule:
+  name: Add schedule
+  description: >-
+    Add a scheduled outlet action. Provide exactly one of `days`
+    (recurring weekly) or `date` (one-shot yyyy/mm/dd).
+  fields:
+    device_id:
+      name: WattBox device
+      description: The WattBox device to target.
+      required: true
+      selector:
+        device:
+          integration: wattbox
+    name:
+      name: Schedule name
+      description: Label shown in the WattBox UI.
+      required: true
+      example: "Nightly NVR reset"
+      selector:
+        text:
+    outlets:
+      name: Outlets
+      description: One or more outlet numbers (1-based) the action applies to.
+      required: true
+      example: "[5, 6]"
+      selector:
+        object:
+    action:
+      name: Action
+      description: What to do at the scheduled time.
+      required: true
+      selector:
+        select:
+          options:
+            - "off"
+            - "on"
+            - "reset"
+    days:
+      name: Days (recurring)
+      description: One or more of sun, mon, tue, wed, thu, fri, sat. Mutually exclusive with `date`.
+      required: false
+      example: "[mon, wed, fri]"
+      selector:
+        select:
+          multiple: true
+          options:
+            - sun
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+    date:
+      name: Date (one-shot)
+      description: yyyy/mm/dd for a single-fire schedule. Mutually exclusive with `days`.
+      required: false
+      example: "2026/12/24"
+      selector:
+        text:
+    time:
+      name: Time
+      description: 24-hour hh:mm.
+      required: true
+      example: "03:30"
+      selector:
+        text:
+
+add_host:
+  name: Add monitored host
+  description: >-
+    Add a ping-monitored host that the WattBox will reboot-cycle the
+    given outlets for when the host stops responding. Requires
+    auto-reboot to be enabled on the WattBox.
+  fields:
+    device_id:
+      name: WattBox device
+      description: The WattBox device to target.
+      required: true
+      selector:
+        device:
+          integration: wattbox
+    name:
+      name: Host label
+      description: Friendly name for the host.
+      required: true
+      example: "Living Room AppleTV"
+      selector:
+        text:
+    ip:
+      name: Host IP
+      description: IPv4 address the WattBox will ping.
+      required: true
+      example: "10.0.0.42"
+      selector:
+        text:
+    outlets:
+      name: Outlets
+      description: Outlet numbers (1-based) to power-cycle when the host fails.
+      required: true
+      example: "[5]"
+      selector:
+        object:

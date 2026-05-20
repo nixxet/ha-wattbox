@@ -23,6 +23,7 @@ from .const import (
     default_port_for,
 )
 from .coordinator import WattboxCoordinator
+from .services import async_register_services, async_unregister_services
 from .wattbox_local import WattboxAuthError, WattboxClient, WattboxLockoutError
 from .wattbox_local.transport import SSHTransport, TelnetTransport
 
@@ -77,6 +78,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WattboxConfigEntry) -> b
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
+    async_register_services(hass)
+
     return True
 
 
@@ -86,6 +89,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: WattboxConfigEntry) -> 
     if unloaded:
         coordinator = entry.runtime_data
         await coordinator.async_shutdown()
+        async_unregister_services(hass, entry.entry_id)
     return unloaded
 
 

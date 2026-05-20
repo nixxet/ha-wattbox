@@ -17,6 +17,15 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  - repo: local
+    hooks:
+      - id: check-vendored-lib
+        name: vendored wattbox_local matches src/
+        entry: bash scripts/check_vendored.sh
+        language: system
+        pass_filenames: false
+        files: ^(src/wattbox_local/|custom_components/wattbox/wattbox_local/)
+
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.13.0
     hooks:

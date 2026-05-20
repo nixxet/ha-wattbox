@@ -16,4 +16,7 @@ fi
 
 rm -rf "$DST"
 cp -r "$SRC" "$DST"
+# Strip caches so check_vendored.sh stays clean.
+find "$DST" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find "$DST" -type f -name '*.pyc' -delete 2>/dev/null || true
 echo "synced $SRC -> $DST"
