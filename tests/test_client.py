@@ -13,8 +13,8 @@ from collections.abc import Callable
 import pytest
 
 from wattbox_local import (
+    AUTH_BACKOFF_SCHEDULE_S,
     LOCKOUT_COOLDOWN_S,
-    MAX_AUTH_FAILURES,
     BatteryHealth,
     Capabilities,
     OutletState,
@@ -297,19 +297,24 @@ async def test_set_command_rejected_with_error() -> None:
 # ---- lockout budget ----------------------------------------------------
 
 
-async def test_client_side_lockout_arms_after_three_auth_failures() -> None:
+async def test_auth_failure_arms_exponential_backoff() -> None:
     c = WattboxClient(
         "10.0.0.1",
         "u",
         "p",
         transport=_ScriptedTransport(connect_error=WattboxAuthError("bad")),
     )
-    for _ in range(MAX_AUTH_FAILURES):
+    # Every auth failure arms a cooldown; subsequent connect attempts
+    # during the cooldown raise WattboxLockoutError, not WattboxAuthError.
+    for expected in AUTH_BACKOFF_SCHEDULE_S + (AUTH_BACKOFF_SCHEDULE_S[-1],):
+        c._locked_until = 0.0  # simulate cooldown elapsed
+        c._transport._connect_error = WattboxAuthError("bad")  # type: ignore[attr-defined]
         with pytest.raises(WattboxAuthError):
             await c.connect()
-        # re-arm the one-shot connect_error for the next attempt
-        c._transport._connect_error = WattboxAuthError("bad")  # type: ignore[attr-defined]
-    assert c.is_locked_out
+        remaining = c._locked_until - time.monotonic()
+        assert 0 < remaining <= expected
+        assert remaining > expected - 1  # allow small clock slack
+    # While cooldown is active, connect refuses to retry.
     with pytest.raises(WattboxLockoutError):
         await c.connect()
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .client import LOCKOUT_COOLDOWN_S, MAX_AUTH_FAILURES, WattboxClient
+from .client import AUTH_BACKOFF_SCHEDULE_S, LOCKOUT_COOLDOWN_S, WattboxClient
 from .exceptions import (
     WattboxAuthError,
     WattboxCommandUnsupported,
@@ -25,8 +25,8 @@ from .models import (
 __version__ = "0.1.0.dev0"
 
 __all__ = [
+    "AUTH_BACKOFF_SCHEDULE_S",
     "LOCKOUT_COOLDOWN_S",
-    "MAX_AUTH_FAILURES",
     "BatteryHealth",
     "Capabilities",
     "DeviceInfo",

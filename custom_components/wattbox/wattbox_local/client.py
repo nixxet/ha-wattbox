@@ -15,11 +15,11 @@ Responsibilities not handled by lower layers:
   ``snapshot()`` calls skip commands the device cannot answer instead of
   paying a round-trip every time.
 * **Lockout budget.** Tracks consecutive auth failures per client
-  instance. After ``MAX_AUTH_FAILURES`` strikes within
-  ``LOCKOUT_COOLDOWN_S``, refuses to attempt another connection until the
-  cooldown elapses — even if the device itself would still accept one.
-  This protects the user from chained mistakes triggering the device's
-  own (longer, opaque) lockout.
+  instance. Each failure arms a cooldown from
+  ``AUTH_BACKOFF_SCHEDULE_S`` (30s → 60s → 120s → 300s cap) during
+  which ``connect()`` raises ``WattboxLockoutError`` instead of
+  attempting again. This protects the user from chained mistakes
+  triggering the device's own (longer, opaque) lockout.
 * **Reconnect.** ``send`` reconnects transparently on a dropped
   connection, once. If reconnect itself fails, the error bubbles up.
 """
@@ -93,10 +93,14 @@ from .transport import TelnetTransport, Transport
 
 _LOGGER = logging.getLogger(__name__)
 
-# Lockout budget tuning. Conservative: WattBox firmware appears to lock
-# after ~3 bad attempts; we cut off at 3 to avoid ever tripping it
-# ourselves. 20 minutes mirrors what we've observed on the device side.
-MAX_AUTH_FAILURES: Final[int] = 3
+# Lockout budget tuning. WattBox firmware appears to lock after ~3 bad
+# attempts; the device-side cooldown runs ~15-20min. We back off
+# exponentially on our own auth failures so we never hammer the device
+# fast enough to trip its lockout in the first place.
+AUTH_BACKOFF_SCHEDULE_S: Final[tuple[float, ...]] = (30.0, 60.0, 120.0, 300.0)
+# Device-side lockout fallback: when the device itself reports a
+# lockout without a parseable remaining-time banner, arm our own
+# cooldown for this long to match what we've observed.
 LOCKOUT_COOLDOWN_S: Final[float] = 1200.0  # 20 minutes
 
 
@@ -480,17 +484,19 @@ class WattboxClient:
 
     def _record_auth_failure(self) -> None:
         self._auth_failures += 1
-        if self._auth_failures >= MAX_AUTH_FAILURES:
-            self._locked_until = time.monotonic() + LOCKOUT_COOLDOWN_S
-            _LOGGER.error(
-                "client-side lockout armed for %s after %d failures",
-                self.host,
-                self._auth_failures,
-            )
+        idx = min(self._auth_failures - 1, len(AUTH_BACKOFF_SCHEDULE_S) - 1)
+        cooldown = AUTH_BACKOFF_SCHEDULE_S[idx]
+        self._locked_until = time.monotonic() + cooldown
+        _LOGGER.warning(
+            "auth failure %d for %s; backing off %.0fs before next attempt",
+            self._auth_failures,
+            self.host,
+            cooldown,
+        )
 
 
 __all__: Sequence[str] = (
+    "AUTH_BACKOFF_SCHEDULE_S",
     "LOCKOUT_COOLDOWN_S",
-    "MAX_AUTH_FAILURES",
     "WattboxClient",
 )
