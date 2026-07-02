@@ -41,3 +41,4 @@ Personal repo. `nixxet` / `robert@thenall.com` per workspace defaults. Remote mu
 ---
 
 *ha-wattbox | WattBox PDU library + HA integration | Active | 2026-05-19*
+<!-- last-reviewed: 2026-07-01 -->
