@@ -306,7 +306,7 @@ async def test_auth_failure_arms_exponential_backoff() -> None:
     )
     # Every auth failure arms a cooldown; subsequent connect attempts
     # during the cooldown raise WattboxLockoutError, not WattboxAuthError.
-    for expected in AUTH_BACKOFF_SCHEDULE_S + (AUTH_BACKOFF_SCHEDULE_S[-1],):
+    for expected in (*AUTH_BACKOFF_SCHEDULE_S, AUTH_BACKOFF_SCHEDULE_S[-1]):
         c._locked_until = 0.0  # simulate cooldown elapsed
         c._transport._connect_error = WattboxAuthError("bad")  # type: ignore[attr-defined]
         with pytest.raises(WattboxAuthError):
