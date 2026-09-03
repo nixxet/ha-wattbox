@@ -38,7 +38,15 @@ Modern Telnet ASCII `?Cmd` / `!Cmd` (also reachable over SSH on these models). O
 
 Personal repo. `nixxet` / `robert@thenall.com` per workspace defaults. Remote must be a private GitHub repo when added.
 
+## Done looks like
+
+- **`mypy --strict` and `ruff` are clean and `pytest` passes with no hardware attached** -- the unit suite stays hardware-free so it runs anywhere, including CI.
+- **A protocol claim is backed by a live probe** recorded in `docs/protocol.md` against the model and firmware it was observed on. `#Error` is a capability gap to document, not a bug to chase.
+- **Failure-budget behaviour is proven by a test**, not asserted in prose: the client refuses to retry into a lockout. These boxes lock for 15+ minutes, so getting this wrong costs access to the device entirely.
+- **No credential reached the repo.** Creds resolve from `~/.wb-creds` or the gitignored `tests/integration/.creds`.
+
 ---
 
 <!-- last-reviewed: 2026-07-01 -->
 *ha-wattbox | WattBox PDU library + HA integration | Active | 2026-05-19*
+<!-- 2026-09-03: added "Done looks like" (exit criteria) per Anthropic Claude 5 / Fable 5.1 prompting guidance; see ~/.claude/CLAUDE.md -> Completion discipline -->
