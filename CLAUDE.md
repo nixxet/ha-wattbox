@@ -48,5 +48,5 @@ Personal repo. `nixxet` / `robert@thenall.com` per workspace defaults. Remote mu
 ---
 
 <!-- last-reviewed: 2026-07-01 -->
-*ha-wattbox | WattBox PDU library + HA integration | Active | 2026-05-19*
+*ha-wattbox | WattBox PDU library + HA integration | Active | 2026-09-03*
 <!-- 2026-09-03: added "Done looks like" (exit criteria) per Anthropic Claude 5 / Fable 5.1 prompting guidance; see ~/.claude/CLAUDE.md -> Completion discipline -->
